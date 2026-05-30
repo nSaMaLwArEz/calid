@@ -77,6 +77,52 @@ export type Vote = {
   source_url?: string | null;
 };
 
+export type VoteMember = {
+  bioguide_id?: string | null;
+  name: string;
+  state?: string | null;
+  party?: string | null;
+  vote: string;
+};
+
+export type MonthlyVoteSummary = {
+  month: string;
+  participated: number;
+  total: number;
+  missed: number;
+};
+
+export type MemberVotingProfile = {
+  member: MemberSummary;
+  votes: Vote[];
+  monthly: MonthlyVoteSummary[];
+  total_votes: number;
+  participated: number;
+  missed: number;
+  note: string;
+};
+
+export type VoteBillSummary = Vote & {
+  yea: number;
+  nay: number;
+  abstained: number;
+  not_voting: number;
+};
+
+export type VoteBillListResponse = {
+  items: VoteBillSummary[];
+  limit: number;
+  offset: number;
+  total?: number | null;
+  note: string;
+};
+
+export type VoteMemberListResponse = {
+  vote: VoteBillSummary;
+  members: VoteMember[];
+  note: string;
+};
+
 export type VoteExplorerResponse = {
   votes: Vote[];
   note: string;

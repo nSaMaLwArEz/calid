@@ -1,4 +1,4 @@
-from app.schemas import Action, AnalyticsCard, BillDetail, BillSummary, Committee, Cosponsor, MemberProfile, MemberSummary, Vote
+from app.schemas import Action, AnalyticsCard, BillDetail, BillSummary, Committee, Cosponsor, MemberProfile, MemberSummary, Vote, VoteBillSummary, VoteMember
 
 
 MEMBERS = [
@@ -114,6 +114,22 @@ VOTES = [
         bill_id="119-hr-812",
         member_position="Yea",
         source_url="https://api.congress.gov/v3/house-vote/119/1/42",
+    )
+]
+
+VOTE_MEMBERS = [
+    VoteMember(bioguide_id="G000577", name="Mike Gallagher", party="Republican", state="WI", vote="Yea"),
+    VoteMember(bioguide_id="J000298", name="Pramila Jayapal", party="Democratic", state="WA", vote="Yea"),
+    VoteMember(bioguide_id="D000624", name="Tammy Duckworth", party="Democratic", state="IL", vote="Not Voting"),
+]
+
+VOTE_BILLS = [
+    VoteBillSummary(
+        **VOTES[0].model_dump(),
+        yea=2,
+        nay=0,
+        abstained=0,
+        not_voting=1,
     )
 ]
 

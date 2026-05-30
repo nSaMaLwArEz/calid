@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 
 from app.config import Settings
-from app.schemas import Action, BillDetail, BillListResponse, BillSummary, Committee, Cosponsor, MemberListResponse, MemberSummary, Vote
+from app.schemas import Action, BillDetail, BillListResponse, BillSummary, Committee, Cosponsor, MemberListResponse, MemberSummary, Vote, VoteBillSummary, VoteMember
 
 
 class CongressClient:
@@ -113,6 +113,18 @@ class CongressClient:
     async def house_votes(self, congress: int, session: int, limit: int = 25) -> list[Vote]:
         payload = await self._get(f"/house-vote/{congress}/{session}", {"limit": limit})
         return [self._parse_vote(item, congress, session) for item in payload.get("houseRollCallVotes", [])]
+
+    async def house_vote_page(self, congress: int, session: int, limit: int, offset: int = 0) -> tuple[list[Vote], int | None]:
+        payload = await self._get(f"/house-vote/{congress}/{session}", {"limit": limit, "offset": offset})
+        return [self._parse_vote(item, congress, session) for item in payload.get("houseRollCallVotes", [])], self._pagination_total(payload)
+
+    async def house_vote_members(self, congress: int, session: int, roll_call_number: int) -> tuple[VoteBillSummary, list[VoteMember]]:
+        payload = await self._get(f"/house-vote/{congress}/{session}/{roll_call_number}")
+        vote_payload = payload.get("houseRollCallVote") or payload.get("houseRollCallVoteDetail") or payload
+        vote = self._parse_vote(vote_payload, congress, session)
+        members = self._extract_vote_members(vote_payload)
+        counts = self._vote_counts(members)
+        return VoteBillSummary(**vote.model_dump(), **counts), members
 
     def _parse_member(self, item: dict[str, Any]) -> MemberSummary:
         terms = item.get("terms", {}).get("item", []) if isinstance(item.get("terms"), dict) else item.get("terms", [])
@@ -227,6 +239,12 @@ class CongressClient:
         )
 
     def _parse_vote(self, item: dict[str, Any], congress: int, session: int) -> Vote:
+        bill = item.get("bill") if isinstance(item.get("bill"), dict) else {}
+        bill_type = (bill.get("type") or bill.get("billType") or "").lower()
+        bill_number = str(bill.get("number") or "")
+        bill_congress = int(bill.get("congress") or congress)
+        bill_id = f"{bill_congress}-{bill_type}-{bill_number}" if bill_type and bill_number else None
+
         return Vote(
             congress=congress,
             session=session,
@@ -235,6 +253,7 @@ class CongressClient:
             date=item.get("date") or item.get("voteDate"),
             question=item.get("question") or item.get("description") or "Roll-call vote",
             result=item.get("result"),
+            bill_id=bill_id,
             source_url=item.get("url"),
         )
 
@@ -244,3 +263,62 @@ class CongressClient:
             return None
         count = pagination.get("count")
         return int(count) if count is not None else None
+
+    def _extract_vote_members(self, payload: dict[str, Any]) -> list[VoteMember]:
+        candidates = self._find_member_vote_lists(payload)
+        members: list[VoteMember] = []
+        for item in candidates:
+            vote = item.get("vote") or item.get("voteCast") or item.get("position") or item.get("cast") or item.get("value")
+            name = item.get("name") or item.get("fullName") or item.get("memberName") or item.get("sortName")
+            member = item.get("member") if isinstance(item.get("member"), dict) else {}
+            if not name:
+                name = member.get("name") or member.get("directOrderName") or member.get("invertedOrderName")
+            if vote and name:
+                members.append(
+                    VoteMember(
+                        bioguide_id=item.get("bioguideId") or item.get("bioguideID") or member.get("bioguideId"),
+                        name=name,
+                        state=item.get("state") or member.get("state"),
+                        party=item.get("party") or item.get("partyName") or member.get("partyName"),
+                        vote=str(vote),
+                    )
+                )
+        return members
+
+    def _find_member_vote_lists(self, value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, list):
+            if value and all(isinstance(item, dict) for item in value):
+                matching = [
+                    item
+                    for item in value
+                    if any(key in item for key in ("vote", "voteCast", "position", "cast"))
+                    and any(key in item for key in ("bioguideId", "bioguideID", "name", "fullName", "memberName", "member"))
+                ]
+                if matching:
+                    return matching
+            result: list[dict[str, Any]] = []
+            for item in value:
+                result.extend(self._find_member_vote_lists(item))
+            return result
+
+        if isinstance(value, dict):
+            result: list[dict[str, Any]] = []
+            for item in value.values():
+                result.extend(self._find_member_vote_lists(item))
+            return result
+
+        return []
+
+    def _vote_counts(self, members: list[VoteMember]) -> dict[str, int]:
+        counts = {"yea": 0, "nay": 0, "abstained": 0, "not_voting": 0}
+        for member in members:
+            normalized = member.vote.strip().lower()
+            if normalized in {"yea", "aye", "yes"}:
+                counts["yea"] += 1
+            elif normalized in {"nay", "no"}:
+                counts["nay"] += 1
+            elif normalized in {"present", "abstain", "abstained"}:
+                counts["abstained"] += 1
+            else:
+                counts["not_voting"] += 1
+        return counts

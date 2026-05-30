@@ -1,6 +1,8 @@
 from app import demo_data
 from app.congress_client import CongressClient
-from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, BillSummary, MemberListResponse, MemberProfile, MemberSummary, VoteExplorerResponse
+from collections import defaultdict
+
+from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, BillSummary, MemberListResponse, MemberProfile, MemberSummary, MemberVotingProfile, MonthlyVoteSummary, Vote, VoteBillListResponse, VoteBillSummary, VoteExplorerResponse, VoteMemberListResponse
 
 
 class LegislativeRepository:
@@ -93,9 +95,118 @@ class LegislativeRepository:
 
         return VoteExplorerResponse(votes=demo_data.VOTES[:limit], note=f"{note} Showing demo votes because live data is unavailable.")
 
+    async def vote_bills(self, congress: int = 119, session: int = 1, limit: int = 10, offset: int = 0) -> VoteBillListResponse:
+        note = "Vote counts use Congress.gov House roll-call data where available."
+        if self.congress_client.enabled:
+            votes, total = await self.congress_client.house_vote_page(congress, session, limit, offset)
+            items: list[VoteBillSummary] = []
+            for vote in votes:
+                try:
+                    detail, _members = await self.congress_client.house_vote_members(congress, session, vote.roll_call_number)
+                    items.append(detail)
+                except Exception:
+                    items.append(VoteBillSummary(**vote.model_dump()))
+            return VoteBillListResponse(items=items, limit=limit, offset=offset, total=total, note=note)
+
+        return VoteBillListResponse(items=demo_data.VOTE_BILLS[:limit], limit=limit, offset=offset, total=len(demo_data.VOTE_BILLS), note=f"{note} Showing demo vote data.")
+
+    async def vote_members(self, congress: int, session: int, roll_call_number: int) -> VoteMemberListResponse:
+        note = "Member vote rosters are available for House roll-call votes supported by Congress.gov."
+        if self.congress_client.enabled:
+            vote, members = await self.congress_client.house_vote_members(congress, session, roll_call_number)
+            return VoteMemberListResponse(vote=vote, members=members, note=note)
+
+        vote = next((item for item in demo_data.VOTE_BILLS if item.roll_call_number == roll_call_number), demo_data.VOTE_BILLS[0])
+        return VoteMemberListResponse(vote=vote, members=demo_data.VOTE_MEMBERS, note=f"{note} Showing demo vote data.")
+
+    async def member_voting_profile(
+        self,
+        bioguide_id: str,
+        congress: int = 119,
+        session: int = 1,
+        limit: int = 50,
+    ) -> MemberVotingProfile | None:
+        member = await self.member_profile(bioguide_id)
+        if not member:
+            return None
+
+        note = "Voting history uses available Congress.gov House roll-call vote rosters. Senate votes and some historical vote detail may require another data source."
+        votes: list[Vote] = []
+        roll_calls: list[Vote] = []
+        total_votes = 0
+
+        if self.congress_client.enabled:
+            roll_calls, total = await self.congress_client.house_vote_page(congress, session, limit, 0)
+            total_votes = len(roll_calls)
+            for roll_call in roll_calls:
+                try:
+                    detail, members = await self.congress_client.house_vote_members(congress, session, roll_call.roll_call_number)
+                    position = self._member_position(members, bioguide_id, member.name)
+                    if position:
+                        votes.append(
+                            Vote(
+                                **detail.model_dump(exclude={"yea", "nay", "abstained", "not_voting", "member_position"}),
+                                member_position=position,
+                            )
+                        )
+                except Exception:
+                    continue
+        else:
+            roll_calls = demo_data.VOTES
+            total_votes = len(roll_calls)
+            votes = [
+                Vote(**vote.model_dump(exclude={"member_position"}), member_position=self._member_position(demo_data.VOTE_MEMBERS, bioguide_id, member.name))
+                for vote in demo_data.VOTES
+            ]
+            votes = [vote for vote in votes if vote.member_position]
+
+        participated = len([vote for vote in votes if self._participated(vote.member_position)])
+        missed = max(total_votes - participated, 0)
+        return MemberVotingProfile(
+            member=MemberSummary(**member.model_dump()),
+            votes=votes,
+            monthly=self._monthly_summary(roll_calls, votes),
+            total_votes=total_votes,
+            participated=participated,
+            missed=missed,
+            note=note,
+        )
+
     async def analytics(self) -> AnalyticsResponse:
         return AnalyticsResponse(**demo_data.ANALYTICS)
 
     def _status_line(self, bill: BillSummary) -> str:
         label = f"{bill.bill_type.upper()} {bill.number}"
         return f"{label}: {bill.status or bill.latest_action or 'Status unavailable'}"
+
+    def _member_position(self, members, bioguide_id: str, name: str) -> str | None:
+        for member in members:
+            if member.bioguide_id == bioguide_id or member.name.lower() == name.lower():
+                return member.vote
+        return None
+
+    def _participated(self, position: str | None) -> bool:
+        if not position:
+            return False
+        return position.strip().lower() not in {"not voting", "not-voting", "absent", "missing"}
+
+    def _monthly_summary(self, roll_calls: list[Vote], member_votes: list[Vote]) -> list[MonthlyVoteSummary]:
+        total_by_month: dict[str, int] = defaultdict(int)
+        participated_by_month: dict[str, int] = defaultdict(int)
+        for vote in roll_calls:
+            if vote.date:
+                total_by_month[vote.date[:7]] += 1
+
+        for vote in member_votes:
+            if vote.date and self._participated(vote.member_position):
+                participated_by_month[vote.date[:7]] += 1
+
+        return [
+            MonthlyVoteSummary(
+                month=month,
+                participated=participated_by_month.get(month, 0),
+                total=total,
+                missed=max(total - participated_by_month.get(month, 0), 0),
+            )
+            for month, total in sorted(total_by_month.items())
+        ]

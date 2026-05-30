@@ -87,6 +87,52 @@ class Vote(BaseModel):
     source_url: str | None = None
 
 
+class VoteMember(BaseModel):
+    bioguide_id: str | None = None
+    name: str
+    state: str | None = None
+    party: str | None = None
+    vote: str
+
+
+class MonthlyVoteSummary(BaseModel):
+    month: str
+    participated: int
+    total: int
+    missed: int
+
+
+class MemberVotingProfile(BaseModel):
+    member: MemberSummary
+    votes: list[Vote]
+    monthly: list[MonthlyVoteSummary]
+    total_votes: int
+    participated: int
+    missed: int
+    note: str
+
+
+class VoteBillSummary(Vote):
+    yea: int = 0
+    nay: int = 0
+    abstained: int = 0
+    not_voting: int = 0
+
+
+class VoteBillListResponse(BaseModel):
+    items: list[VoteBillSummary]
+    limit: int
+    offset: int
+    total: int | None = None
+    note: str
+
+
+class VoteMemberListResponse(BaseModel):
+    vote: VoteBillSummary
+    members: list[VoteMember]
+    note: str
+
+
 class VoteExplorerResponse(BaseModel):
     votes: list[Vote]
     note: str

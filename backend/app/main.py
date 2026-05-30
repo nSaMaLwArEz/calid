@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import Settings, get_settings
 from app.congress_client import CongressClient
 from app.repository import LegislativeRepository
-from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, HealthResponse, MemberListResponse, MemberProfile, VoteExplorerResponse
+from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, HealthResponse, MemberListResponse, MemberProfile, MemberVotingProfile, VoteBillListResponse, VoteExplorerResponse, VoteMemberListResponse
 
 
 def get_repository(settings: Settings = Depends(get_settings)) -> LegislativeRepository:
@@ -136,6 +136,20 @@ async def member_profile(
     return profile
 
 
+@app.get("/members/{bioguide_id}/voting", response_model=MemberVotingProfile)
+async def member_voting_profile(
+    bioguide_id: str,
+    congress: int = Query(default=119, ge=1),
+    session: int = Query(default=1, ge=1, le=2),
+    limit: int = Query(default=50, ge=1, le=100),
+    repository: LegislativeRepository = Depends(get_repository),
+) -> MemberVotingProfile:
+    profile = await repository.member_voting_profile(bioguide_id=bioguide_id, congress=congress, session=session, limit=limit)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return profile
+
+
 @app.get("/bills/{bill_id}", response_model=BillDetail)
 async def bill_detail(
     bill_id: str,
@@ -145,6 +159,27 @@ async def bill_detail(
     if not bill:
         raise HTTPException(status_code=404, detail="Bill not found")
     return bill
+
+
+@app.get("/vote-bills", response_model=VoteBillListResponse)
+async def vote_bills(
+    congress: int = Query(default=119, ge=1),
+    session: int = Query(default=1, ge=1, le=2),
+    limit: int = Query(default=10, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    repository: LegislativeRepository = Depends(get_repository),
+) -> VoteBillListResponse:
+    return await repository.vote_bills(congress=congress, session=session, limit=limit, offset=offset)
+
+
+@app.get("/votes/house/{congress}/{session}/{roll_call_number}/members", response_model=VoteMemberListResponse)
+async def house_vote_members(
+    congress: int,
+    session: int,
+    roll_call_number: int,
+    repository: LegislativeRepository = Depends(get_repository),
+) -> VoteMemberListResponse:
+    return await repository.vote_members(congress=congress, session=session, roll_call_number=roll_call_number)
 
 
 @app.get("/votes/house", response_model=VoteExplorerResponse)
