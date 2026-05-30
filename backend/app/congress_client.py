@@ -15,7 +15,7 @@ class CongressClient:
         if not self.settings.congress_api_key:
             raise RuntimeError("CONGRESS_API_KEY is not configured.")
 
-        query = {"api_key": self.settings.congress_api_key, "format": "json"}
+        query = {"api_key": self.settings.congress_api_key.strip(), "format": "json"}
         if params:
             query.update(params)
 

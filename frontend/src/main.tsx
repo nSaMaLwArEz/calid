@@ -63,7 +63,7 @@ function App() {
       }
       setStatus(`${response.items.length} members loaded`);
     } catch {
-      setStatus("Backend unavailable");
+      setStatus("Member data failed. Check /diagnostics/congress");
     }
   }
 

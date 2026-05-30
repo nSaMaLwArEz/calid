@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +54,35 @@ async def root():
 @app.get("/health", response_model=HealthResponse)
 async def health(repository: LegislativeRepository = Depends(get_repository)) -> HealthResponse:
     return HealthResponse(status="ok", data_mode=repository.data_mode)
+
+
+@app.get("/diagnostics/congress")
+async def congress_diagnostics(settings: Settings = Depends(get_settings)) -> dict[str, object]:
+    diagnostics: dict[str, object] = {
+        "api_key_configured": bool(settings.congress_api_key),
+        "base_url": str(settings.congress_api_base_url),
+    }
+    if not settings.congress_api_key:
+        diagnostics["status"] = "missing_api_key"
+        return diagnostics
+
+    try:
+        async with httpx.AsyncClient(base_url=str(settings.congress_api_base_url), timeout=20) as client:
+            response = await client.get(
+                "member",
+                params={"api_key": settings.congress_api_key.strip(), "format": "json", "limit": 1},
+            )
+            diagnostics["status_code"] = response.status_code
+            response.raise_for_status()
+            payload = response.json()
+            diagnostics["status"] = "ok"
+            diagnostics["member_count"] = len(payload.get("members", []))
+            diagnostics["total"] = payload.get("pagination", {}).get("count")
+            return diagnostics
+    except Exception as exc:
+        diagnostics["status"] = "error"
+        diagnostics["error"] = str(exc)
+        return diagnostics
 
 
 @app.get("/members", response_model=MemberListResponse)
