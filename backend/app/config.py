@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     congress_api_key: str | None = None
     congress_api_base_url: AnyHttpUrl = "https://api.congress.gov/v3"
-    database_url: str = "postgresql+psycopg://calid:calid@localhost:5432/calid"
+    database_url: str = "sqlite:///./calid.db"
+    sync_admin_token: str | None = None
     cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

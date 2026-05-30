@@ -135,6 +135,18 @@ class VoteMemberListResponse(BaseModel):
     note: str
 
 
+class VoteSyncResponse(BaseModel):
+    congress: int
+    session: int
+    scanned_votes: int
+    stored_votes: int
+    stored_positions: int
+    offset: int
+    limit: int
+    total_available: int | None = None
+    note: str
+
+
 class VoteExplorerResponse(BaseModel):
     votes: list[Vote]
     note: str

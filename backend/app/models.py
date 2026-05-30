@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -50,6 +50,7 @@ class CommitteeAssignment(Base):
 
 class RollCallVote(Base):
     __tablename__ = "roll_call_votes"
+    __table_args__ = (UniqueConstraint("congress", "session", "chamber", "roll_call_number", name="uq_roll_call_vote"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     congress: Mapped[int] = mapped_column(Integer, index=True)
@@ -59,3 +60,22 @@ class RollCallVote(Base):
     question: Mapped[str] = mapped_column(Text)
     result: Mapped[str | None] = mapped_column(String(120), nullable=True)
     date: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    bill_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    positions: Mapped[list["VotePosition"]] = relationship(back_populates="vote_record", cascade="all, delete-orphan")
+
+
+class VotePosition(Base):
+    __tablename__ = "vote_positions"
+    __table_args__ = (UniqueConstraint("roll_call_vote_id", "member_bioguide_id", name="uq_vote_position_member"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    roll_call_vote_id: Mapped[int] = mapped_column(ForeignKey("roll_call_votes.id"), index=True)
+    member_bioguide_id: Mapped[str] = mapped_column(String(12), index=True)
+    member_name: Mapped[str] = mapped_column(String(240), index=True)
+    state: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
+    party: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    vote: Mapped[str] = mapped_column(String(40), index=True)
+
+    vote_record: Mapped[RollCallVote] = relationship(back_populates="positions")

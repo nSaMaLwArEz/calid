@@ -7,15 +7,18 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.congress_client import CongressClient
+from app.database import ensure_schema, get_db
 from app.repository import LegislativeRepository
-from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, HealthResponse, MemberListResponse, MemberProfile, MemberVotingProfile, VoteBillListResponse, VoteExplorerResponse, VoteMemberListResponse
+from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, HealthResponse, MemberListResponse, MemberProfile, MemberVotingProfile, VoteBillListResponse, VoteExplorerResponse, VoteMemberListResponse, VoteSyncResponse
+from app.vote_sync import sync_house_votes
 
 
-def get_repository(settings: Settings = Depends(get_settings)) -> LegislativeRepository:
-    return LegislativeRepository(CongressClient(settings))
+def get_repository(settings: Settings = Depends(get_settings), db: Session = Depends(get_db)) -> LegislativeRepository:
+    return LegislativeRepository(CongressClient(settings), db)
 
 
 app = FastAPI(title="CALID API", version="0.1.0")
@@ -30,6 +33,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def create_database_schema() -> None:
+    ensure_schema()
 
 
 @app.get("/")
@@ -170,6 +178,29 @@ async def vote_bills(
     repository: LegislativeRepository = Depends(get_repository),
 ) -> VoteBillListResponse:
     return await repository.vote_bills(congress=congress, session=session, limit=limit, offset=offset)
+
+
+@app.post("/admin/sync/house-votes", response_model=VoteSyncResponse)
+async def sync_house_vote_cache(
+    congress: int = Query(default=119, ge=1),
+    session: int = Query(default=1, ge=1, le=2),
+    limit: int = Query(default=25, ge=1, le=250),
+    offset: int = Query(default=0, ge=0),
+    token: str | None = None,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+) -> VoteSyncResponse:
+    if settings.sync_admin_token and token != settings.sync_admin_token:
+        raise HTTPException(status_code=403, detail="Invalid sync token")
+
+    return await sync_house_votes(
+        db=db,
+        congress_client=CongressClient(settings),
+        congress=congress,
+        session=session,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.get("/votes/house/{congress}/{session}/{roll_call_number}/members", response_model=VoteMemberListResponse)

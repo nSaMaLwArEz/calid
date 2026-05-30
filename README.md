@@ -64,6 +64,23 @@ python -m app.etl.pull_congress --congress 119 --limit 25
 
 The starter demonstrates member and bill pulls. The next production step is persisting these payloads into PostgreSQL on a scheduler.
 
+Sync House roll-call vote rosters into the database:
+
+```powershell
+cd backend
+python -m app.etl.sync_house_votes --congress 119 --session 1 --limit 25 --offset 0
+```
+
+On Render, attach a PostgreSQL database and set `DATABASE_URL` to the internal database URL. Then call the admin sync endpoint in batches:
+
+```text
+POST /admin/sync/house-votes?congress=119&session=1&limit=25&offset=0
+```
+
+Optionally set `SYNC_ADMIN_TOKEN` in Render and pass `&token=your-token` to protect the sync endpoint.
+
+Repeat with offsets `25`, `50`, `75`, etc. Once synced, vote counts, member participation, missed votes, monthly history, and vote rosters are computed from PostgreSQL instead of live sampled API calls.
+
 ## PostgreSQL
 
 Start a local database:

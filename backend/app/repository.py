@@ -1,13 +1,17 @@
-from app import demo_data
-from app.congress_client import CongressClient
 from collections import defaultdict
 
+from sqlalchemy.orm import Session
+
+from app import demo_data
+from app.congress_client import CongressClient
 from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, BillSummary, MemberListResponse, MemberProfile, MemberSummary, MemberVotingProfile, MonthlyVoteSummary, Vote, VoteBillListResponse, VoteBillSummary, VoteExplorerResponse, VoteMemberListResponse
+from app.vote_cache import cached_member_voting_profile, cached_vote_bills, cached_vote_members, has_cached_votes
 
 
 class LegislativeRepository:
-    def __init__(self, congress_client: CongressClient):
+    def __init__(self, congress_client: CongressClient, db: Session | None = None):
         self.congress_client = congress_client
+        self.db = db
 
     @property
     def data_mode(self) -> str:
@@ -96,7 +100,17 @@ class LegislativeRepository:
         return VoteExplorerResponse(votes=demo_data.VOTES[:limit], note=f"{note} Showing demo votes because live data is unavailable.")
 
     async def vote_bills(self, congress: int = 119, session: int = 1, limit: int = 10, offset: int = 0) -> VoteBillListResponse:
-        note = "Vote counts use Congress.gov House roll-call data where available."
+        note = "Vote counts use cached database records when available, then Congress.gov House roll-call data."
+        if self.db and has_cached_votes(self.db, congress, session):
+            items, total = cached_vote_bills(self.db, congress, session, limit, offset)
+            return VoteBillListResponse(
+                items=items,
+                limit=limit,
+                offset=offset,
+                total=total,
+                note="Vote counts are computed from cached House roll-call rosters in the database.",
+            )
+
         if self.congress_client.enabled:
             votes, total = await self.congress_client.house_vote_page(congress, session, limit, offset)
             items: list[VoteBillSummary] = []
@@ -111,7 +125,12 @@ class LegislativeRepository:
         return VoteBillListResponse(items=demo_data.VOTE_BILLS[:limit], limit=limit, offset=offset, total=len(demo_data.VOTE_BILLS), note=f"{note} Showing demo vote data.")
 
     async def vote_members(self, congress: int, session: int, roll_call_number: int) -> VoteMemberListResponse:
-        note = "Member vote rosters are available for House roll-call votes supported by Congress.gov."
+        note = "Member vote rosters use cached database records when available, then Congress.gov."
+        if self.db and has_cached_votes(self.db, congress, session):
+            vote, members = cached_vote_members(self.db, congress, session, roll_call_number)
+            if vote:
+                return VoteMemberListResponse(vote=vote, members=members, note="Member vote roster is loaded from the database cache.")
+
         if self.congress_client.enabled:
             vote, members = await self.congress_client.house_vote_members(congress, session, roll_call_number)
             return VoteMemberListResponse(vote=vote, members=members, note=note)
@@ -129,6 +148,11 @@ class LegislativeRepository:
         member = await self.member_profile(bioguide_id)
         if not member:
             return None
+
+        if self.db:
+            cached_profile = cached_member_voting_profile(self.db, MemberSummary(**member.model_dump()), congress, session)
+            if cached_profile:
+                return cached_profile
 
         note = "Voting history uses Congress.gov beta House roll-call vote rosters. Senate votes and non-roll-call votes require another data source."
         votes: list[Vote] = []
