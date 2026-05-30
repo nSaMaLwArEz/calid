@@ -23,6 +23,23 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def root() -> dict[str, str | list[str]]:
+    return {
+        "name": "CALID API",
+        "status": "live",
+        "docs": "/docs",
+        "health": "/health",
+        "endpoints": [
+            "/members",
+            "/members/{bioguide_id}",
+            "/bills/{bill_id}",
+            "/votes/house",
+            "/analytics",
+        ],
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health(repository: LegislativeRepository = Depends(get_repository)) -> HealthResponse:
     return HealthResponse(status="ok", data_mode=repository.data_mode)
