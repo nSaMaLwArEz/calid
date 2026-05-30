@@ -141,7 +141,7 @@ async def member_voting_profile(
     bioguide_id: str,
     congress: int = Query(default=119, ge=1),
     session: int = Query(default=1, ge=1, le=2),
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=250, ge=1, le=250),
     repository: LegislativeRepository = Depends(get_repository),
 ) -> MemberVotingProfile:
     profile = await repository.member_voting_profile(bioguide_id=bioguide_id, congress=congress, session=session, limit=limit)

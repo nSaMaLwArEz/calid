@@ -107,6 +107,8 @@ class MemberVotingProfile(BaseModel):
     votes: list[Vote]
     monthly: list[MonthlyVoteSummary]
     total_votes: int
+    scanned_votes: int
+    available_votes: int | None = None
     participated: int
     missed: int
     note: str

@@ -124,19 +124,33 @@ class LegislativeRepository:
         bioguide_id: str,
         congress: int = 119,
         session: int = 1,
-        limit: int = 50,
+        limit: int = 250,
     ) -> MemberVotingProfile | None:
         member = await self.member_profile(bioguide_id)
         if not member:
             return None
 
-        note = "Voting history uses available Congress.gov House roll-call vote rosters. Senate votes and some historical vote detail may require another data source."
+        note = "Voting history uses Congress.gov beta House roll-call vote rosters. Senate votes and non-roll-call votes require another data source."
         votes: list[Vote] = []
         roll_calls: list[Vote] = []
         total_votes = 0
+        available_votes: int | None = None
 
         if self.congress_client.enabled:
+            if member.chamber.lower() != "house":
+                return MemberVotingProfile(
+                    member=MemberSummary(**member.model_dump()),
+                    votes=[],
+                    monthly=[],
+                    total_votes=0,
+                    scanned_votes=0,
+                    available_votes=None,
+                    participated=0,
+                    missed=0,
+                    note="Congress.gov currently exposes detailed roll-call voting through the House vote API. Senate vote detail requires another data source.",
+                )
             roll_calls, total = await self.congress_client.house_vote_page(congress, session, limit, 0)
+            available_votes = total
             total_votes = len(roll_calls)
             for roll_call in roll_calls:
                 try:
@@ -167,6 +181,8 @@ class LegislativeRepository:
             votes=votes,
             monthly=self._monthly_summary(roll_calls, votes),
             total_votes=total_votes,
+            scanned_votes=total_votes,
+            available_votes=available_votes,
             participated=participated,
             missed=missed,
             note=note,

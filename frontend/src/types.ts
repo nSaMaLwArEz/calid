@@ -97,6 +97,8 @@ export type MemberVotingProfile = {
   votes: Vote[];
   monthly: MonthlyVoteSummary[];
   total_votes: number;
+  scanned_votes: number;
+  available_votes?: number | null;
   participated: number;
   missed: number;
   note: string;

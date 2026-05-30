@@ -119,10 +119,19 @@ class CongressClient:
         return [self._parse_vote(item, congress, session) for item in payload.get("houseRollCallVotes", [])], self._pagination_total(payload)
 
     async def house_vote_members(self, congress: int, session: int, roll_call_number: int) -> tuple[VoteBillSummary, list[VoteMember]]:
-        payload = await self._get(f"/house-vote/{congress}/{session}/{roll_call_number}")
-        vote_payload = payload.get("houseRollCallVote") or payload.get("houseRollCallVoteDetail") or payload
-        vote = self._parse_vote(vote_payload, congress, session)
+        vote_payload = await self._get(f"/house-vote/{congress}/{session}/{roll_call_number}/members", {"limit": 250})
         members = self._extract_vote_members(vote_payload)
+        total = self._pagination_total(vote_payload)
+        offset = 250
+        while total is not None and offset < total:
+            page_payload = await self._get(
+                f"/house-vote/{congress}/{session}/{roll_call_number}/members",
+                {"limit": 250, "offset": offset},
+            )
+            members.extend(self._extract_vote_members(page_payload))
+            offset += 250
+
+        vote = self._parse_vote(vote_payload, congress, session)
         counts = self._vote_counts(members)
         return VoteBillSummary(**vote.model_dump(), **counts), members
 
@@ -240,21 +249,21 @@ class CongressClient:
 
     def _parse_vote(self, item: dict[str, Any], congress: int, session: int) -> Vote:
         bill = item.get("bill") if isinstance(item.get("bill"), dict) else {}
-        bill_type = (bill.get("type") or bill.get("billType") or "").lower()
-        bill_number = str(bill.get("number") or "")
-        bill_congress = int(bill.get("congress") or congress)
+        bill_type = (bill.get("type") or bill.get("billType") or item.get("legislationType") or "").lower()
+        bill_number = str(bill.get("number") or item.get("legislationNumber") or "")
+        bill_congress = int(bill.get("congress") or item.get("congress") or congress)
         bill_id = f"{bill_congress}-{bill_type}-{bill_number}" if bill_type and bill_number else None
 
         return Vote(
-            congress=congress,
-            session=session,
+            congress=int(item.get("congress") or congress),
+            session=int(item.get("sessionNumber") or item.get("session") or session),
             chamber="House",
             roll_call_number=int(item.get("rollCallNumber") or item.get("number") or 0),
-            date=item.get("date") or item.get("voteDate"),
-            question=item.get("question") or item.get("description") or "Roll-call vote",
+            date=item.get("date") or item.get("voteDate") or item.get("startDate"),
+            question=item.get("voteQuestion") or item.get("question") or item.get("description") or "Roll-call vote",
             result=item.get("result"),
             bill_id=bill_id,
-            source_url=item.get("url"),
+            source_url=item.get("url") or item.get("sourceDataURL"),
         )
 
     def _pagination_total(self, payload: dict[str, Any]) -> int | None:
@@ -265,21 +274,25 @@ class CongressClient:
         return int(count) if count is not None else None
 
     def _extract_vote_members(self, payload: dict[str, Any]) -> list[VoteMember]:
-        candidates = self._find_member_vote_lists(payload)
+        candidates = payload.get("results") if isinstance(payload.get("results"), list) else self._find_member_vote_lists(payload)
         members: list[VoteMember] = []
         for item in candidates:
             vote = item.get("vote") or item.get("voteCast") or item.get("position") or item.get("cast") or item.get("value")
             name = item.get("name") or item.get("fullName") or item.get("memberName") or item.get("sortName")
             member = item.get("member") if isinstance(item.get("member"), dict) else {}
             if not name:
+                first_name = item.get("firstName") or member.get("firstName")
+                last_name = item.get("lastName") or member.get("lastName")
                 name = member.get("name") or member.get("directOrderName") or member.get("invertedOrderName")
+                if not name and (first_name or last_name):
+                    name = " ".join(part for part in [first_name, last_name] if part)
             if vote and name:
                 members.append(
                     VoteMember(
                         bioguide_id=item.get("bioguideId") or item.get("bioguideID") or member.get("bioguideId"),
                         name=name,
-                        state=item.get("state") or member.get("state"),
-                        party=item.get("party") or item.get("partyName") or member.get("partyName"),
+                        state=item.get("state") or item.get("voteState") or member.get("state"),
+                        party=item.get("party") or item.get("partyName") or item.get("voteParty") or member.get("partyName"),
                         vote=str(vote),
                     )
                 )

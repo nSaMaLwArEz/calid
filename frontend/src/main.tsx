@@ -291,13 +291,19 @@ function CongresspersonPage({
             <div className="metric-strip">
               <Metric label="Participated" value={memberVotes?.participated ?? 0} />
               <Metric label="Missed" value={memberVotes?.missed ?? 0} />
-              <Metric label="Total Votes" value={memberVotes?.total_votes ?? 0} />
+              <Metric label="Scanned Votes" value={memberVotes?.scanned_votes ?? 0} />
             </div>
           </section>
         )}
 
         <section className="content-grid">
           <Panel title="Voting By Month" icon={<BarChart3 size={18} />}>
+            {memberVotes && (
+              <p className="note">
+                Showing {memberVotes.scanned_votes}
+                {memberVotes.available_votes ? ` of ${memberVotes.available_votes}` : ""} available House roll-call votes.
+              </p>
+            )}
             {memberVotes?.monthly.length ? (
               <div className="chart-wrap tall">
                 <ResponsiveContainer width="100%" height={260}>
