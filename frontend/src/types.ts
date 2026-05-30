@@ -32,6 +32,13 @@ export type BillSummary = {
   status?: string | null;
 };
 
+export type PaginatedResponse<T> = {
+  items: T[];
+  limit: number;
+  offset: number;
+  total?: number | null;
+};
+
 export type Cosponsor = {
   bioguide_id?: string | null;
   name: string;

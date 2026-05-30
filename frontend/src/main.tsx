@@ -4,6 +4,7 @@ import { Activity, BarChart3, Building2, FileText, Search, ShieldAlert, Vote } f
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   getAnalytics,
+  getBills,
   getBillDetail,
   getHouseVotes,
   getMemberProfile,
@@ -14,7 +15,9 @@ import "./styles.css";
 
 const chamberOptions = ["", "House", "Senate"];
 const partyOptions = ["", "Democratic", "Republican", "Independent"];
+const billTypeOptions = ["", "hr", "s", "hjres", "sjres", "hconres", "sconres", "hres", "sres"];
 const topicFilters = ["Defense", "Veterans", "Cybersecurity", "Education", "Healthcare", "Immigration"];
+const pageSize = 50;
 
 function App() {
   const [query, setQuery] = React.useState("");
@@ -22,7 +25,14 @@ function App() {
   const [party, setParty] = React.useState("");
   const [chamber, setChamber] = React.useState("");
   const [topic, setTopic] = React.useState("");
+  const [memberOffset, setMemberOffset] = React.useState(0);
   const [members, setMembers] = React.useState<MemberSummary[]>([]);
+  const [memberTotal, setMemberTotal] = React.useState<number | null>(null);
+  const [billCongress, setBillCongress] = React.useState(119);
+  const [billType, setBillType] = React.useState("");
+  const [billOffset, setBillOffset] = React.useState(0);
+  const [allBills, setAllBills] = React.useState<BillSummary[]>([]);
+  const [billTotal, setBillTotal] = React.useState<number | null>(null);
   const [selectedMember, setSelectedMember] = React.useState<MemberProfile | null>(null);
   const [selectedBill, setSelectedBill] = React.useState<BillDetail | null>(null);
   const [votes, setVotes] = React.useState<VoteExplorerResponse | null>(null);
@@ -31,22 +41,45 @@ function App() {
 
   React.useEffect(() => {
     void runSearch();
+    void loadBills(0);
     void getHouseVotes().then(setVotes).catch(() => setVotes(null));
     void getAnalytics().then(setAnalytics).catch(() => setAnalytics(null));
   }, []);
 
   async function runSearch(event?: React.FormEvent) {
     event?.preventDefault();
+    await loadMembers(0);
+  }
+
+  async function loadMembers(offset: number) {
     setStatus("Searching members");
     try {
-      const results = await searchMembers({ query, state, party, chamber });
-      setMembers(results);
-      if (!selectedMember && results[0]) {
-        await openMember(results[0].bioguide_id);
+      const response = await searchMembers({ query, state, party, chamber, limit: pageSize, offset });
+      setMembers(response.items);
+      setMemberOffset(response.offset);
+      setMemberTotal(response.total ?? null);
+      if (!selectedMember && response.items[0]) {
+        await openMember(response.items[0].bioguide_id);
       }
-      setStatus(`${results.length} members found`);
+      setStatus(`${response.items.length} members loaded`);
     } catch {
       setStatus("Backend unavailable");
+    }
+  }
+
+  async function loadBills(offset: number) {
+    setStatus("Loading bills");
+    try {
+      const response = await getBills({ congress: billCongress, bill_type: billType || undefined, limit: pageSize, offset });
+      setAllBills(response.items);
+      setBillOffset(response.offset);
+      setBillTotal(response.total ?? null);
+      if (!selectedBill && response.items[0]) {
+        await openBill(response.items[0].id);
+      }
+      setStatus(`${response.items.length} bills loaded`);
+    } catch {
+      setStatus("Bill list unavailable");
     }
   }
 
@@ -66,10 +99,14 @@ function App() {
   }
 
   const filteredBills = React.useMemo(() => {
-    const bills = [...(selectedMember?.sponsored_bills ?? []), ...(selectedMember?.cosponsored_bills ?? [])];
+    const billMap = new Map<string, BillSummary>();
+    [...allBills, ...(selectedMember?.sponsored_bills ?? []), ...(selectedMember?.cosponsored_bills ?? [])].forEach((bill) => {
+      billMap.set(bill.id, bill);
+    });
+    const bills = Array.from(billMap.values());
     if (!topic) return bills;
     return bills.filter((bill) => bill.policy_area?.toLowerCase().includes(topic.toLowerCase()));
-  }, [selectedMember, topic]);
+  }, [allBills, selectedMember, topic]);
 
   return (
     <main className="app-shell">
@@ -141,6 +178,14 @@ function App() {
               </button>
             ))}
           </div>
+          <PaginationControls
+            offset={memberOffset}
+            limit={pageSize}
+            total={memberTotal}
+            label="members"
+            onPrevious={() => void loadMembers(Math.max(0, memberOffset - pageSize))}
+            onNext={() => void loadMembers(memberOffset + pageSize)}
+          />
         </aside>
 
         <section className="main-stack">
@@ -164,6 +209,37 @@ function App() {
 
           <section className="content-grid">
             <Panel title="Legislation" icon={<FileText size={18} />}>
+              <form
+                className="bill-browser-controls"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void loadBills(0);
+                }}
+              >
+                <label>
+                  Congress
+                  <input
+                    value={billCongress}
+                    type="number"
+                    min={1}
+                    onChange={(event) => setBillCongress(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  Bill Type
+                  <select value={billType} onChange={(event) => setBillType(event.target.value)}>
+                    {billTypeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option ? option.toUpperCase() : "Any"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="primary-button" type="submit">
+                  <Search size={16} />
+                  Load Bills
+                </button>
+              </form>
               <div className="topic-tabs">
                 <button className={!topic ? "selected" : ""} onClick={() => setTopic("")}>
                   All
@@ -179,6 +255,14 @@ function App() {
                   <BillRow key={bill.id} bill={bill} active={selectedBill?.id === bill.id} onSelect={() => void openBill(bill.id)} />
                 ))}
               </div>
+              <PaginationControls
+                offset={billOffset}
+                limit={pageSize}
+                total={billTotal}
+                label="bills"
+                onPrevious={() => void loadBills(Math.max(0, billOffset - pageSize))}
+                onNext={() => void loadBills(billOffset + pageSize)}
+              />
             </Panel>
 
             <Panel title="Bill Detail" icon={<ShieldAlert size={18} />}>
@@ -234,6 +318,40 @@ function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function PaginationControls({
+  offset,
+  limit,
+  total,
+  label,
+  onPrevious,
+  onNext,
+}: {
+  offset: number;
+  limit: number;
+  total: number | null;
+  label: string;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  const end = total === null ? offset + limit : Math.min(offset + limit, total);
+  const canGoNext = total === null || offset + limit < total;
+
+  return (
+    <div className="pagination-controls">
+      <button type="button" onClick={onPrevious} disabled={offset === 0}>
+        Previous
+      </button>
+      <span>
+        {offset + 1}-{end}
+        {total !== null ? ` of ${total}` : ""} {label}
+      </span>
+      <button type="button" onClick={onNext} disabled={!canGoNext}>
+        Next
+      </button>
+    </div>
   );
 }
 

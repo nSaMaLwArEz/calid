@@ -35,6 +35,20 @@ class BillSummary(BaseModel):
     status: str | None = None
 
 
+class MemberListResponse(BaseModel):
+    items: list[MemberSummary]
+    limit: int
+    offset: int
+    total: int | None = None
+
+
+class BillListResponse(BaseModel):
+    items: list[BillSummary]
+    limit: int
+    offset: int
+    total: int | None = None
+
+
 class Cosponsor(BaseModel):
     bioguide_id: str | None = None
     name: str

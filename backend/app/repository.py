@@ -1,6 +1,6 @@
 from app import demo_data
 from app.congress_client import CongressClient
-from app.schemas import AnalyticsResponse, BillDetail, BillSummary, MemberProfile, MemberSummary, VoteExplorerResponse
+from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, BillSummary, MemberListResponse, MemberProfile, MemberSummary, VoteExplorerResponse
 
 
 class LegislativeRepository:
@@ -18,10 +18,11 @@ class LegislativeRepository:
         party: str | None = None,
         chamber: str | None = None,
         limit: int = 20,
-    ) -> list[MemberSummary]:
+        offset: int = 0,
+    ) -> MemberListResponse:
         if self.congress_client.enabled:
             try:
-                return await self.congress_client.search_members(query, state, party, chamber, limit)
+                return await self.congress_client.search_members(query, state, party, chamber, limit, offset)
             except Exception:
                 pass
 
@@ -34,7 +35,29 @@ class LegislativeRepository:
             members = [member for member in members if member.party.lower().startswith(party.lower())]
         if chamber:
             members = [member for member in members if member.chamber.lower() == chamber.lower()]
-        return members[:limit]
+        total = len(members)
+        return MemberListResponse(items=members[offset : offset + limit], limit=limit, offset=offset, total=total)
+
+    async def bills(
+        self,
+        congress: int | None = 119,
+        bill_type: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> BillListResponse:
+        if self.congress_client.enabled:
+            try:
+                return await self.congress_client.bills(congress=congress, bill_type=bill_type, limit=limit, offset=offset)
+            except Exception:
+                pass
+
+        bills = [BillSummary(**bill.model_dump()) for bill in demo_data.BILLS]
+        if congress:
+            bills = [bill for bill in bills if bill.congress == congress]
+        if bill_type:
+            bills = [bill for bill in bills if bill.bill_type.lower() == bill_type.lower()]
+        total = len(bills)
+        return BillListResponse(items=bills[offset : offset + limit], limit=limit, offset=offset, total=total)
 
     async def member_profile(self, bioguide_id: str) -> MemberProfile | None:
         if self.congress_client.enabled:

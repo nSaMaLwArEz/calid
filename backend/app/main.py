@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import Settings, get_settings
 from app.congress_client import CongressClient
 from app.repository import LegislativeRepository
-from app.schemas import AnalyticsResponse, BillDetail, HealthResponse, MemberProfile, MemberSummary, VoteExplorerResponse
+from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, HealthResponse, MemberListResponse, MemberProfile, VoteExplorerResponse
 
 
 def get_repository(settings: Settings = Depends(get_settings)) -> LegislativeRepository:
@@ -42,6 +42,7 @@ async def root():
         "endpoints": [
             "/members",
             "/members/{bioguide_id}",
+            "/bills",
             "/bills/{bill_id}",
             "/votes/house",
             "/analytics",
@@ -54,16 +55,28 @@ async def health(repository: LegislativeRepository = Depends(get_repository)) ->
     return HealthResponse(status="ok", data_mode=repository.data_mode)
 
 
-@app.get("/members", response_model=list[MemberSummary])
+@app.get("/members", response_model=MemberListResponse)
 async def search_members(
     query: str | None = None,
     state: str | None = Query(default=None, min_length=2, max_length=2),
     party: str | None = None,
     chamber: str | None = None,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=50, ge=1, le=250),
+    offset: int = Query(default=0, ge=0),
     repository: LegislativeRepository = Depends(get_repository),
-) -> list[MemberSummary]:
-    return await repository.search_members(query=query, state=state, party=party, chamber=chamber, limit=limit)
+) -> MemberListResponse:
+    return await repository.search_members(query=query, state=state, party=party, chamber=chamber, limit=limit, offset=offset)
+
+
+@app.get("/bills", response_model=BillListResponse)
+async def bills(
+    congress: int | None = Query(default=119, ge=1),
+    bill_type: str | None = None,
+    limit: int = Query(default=50, ge=1, le=250),
+    offset: int = Query(default=0, ge=0),
+    repository: LegislativeRepository = Depends(get_repository),
+) -> BillListResponse:
+    return await repository.bills(congress=congress, bill_type=bill_type, limit=limit, offset=offset)
 
 
 @app.get("/members/{bioguide_id}", response_model=MemberProfile)

@@ -278,6 +278,14 @@ select {
   margin-bottom: 12px;
 }
 
+.bill-browser-controls {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(120px, 1fr) auto;
+  margin-bottom: 12px;
+}
+
 .topic-tabs button {
   background: #f5f3ed;
   border: 1px solid #d8d2c8;
@@ -402,6 +410,38 @@ dd {
   gap: 12px;
 }
 
+.pagination-controls {
+  align-items: center;
+  border-top: 1px solid #eee8df;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.pagination-controls button {
+  background: #fff;
+  border: 1px solid #c9c4bb;
+  border-radius: 6px;
+  color: #253033;
+  font-weight: 800;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.pagination-controls button:disabled {
+  color: #9aa1a3;
+  cursor: not-allowed;
+}
+
+.pagination-controls span {
+  color: #687174;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}
+
 .chart-wrap {
   height: 190px;
   min-width: 0;
@@ -437,7 +477,8 @@ dd {
   }
 
   .metric-strip,
-  .field-row {
+  .field-row,
+  .bill-browser-controls {
     grid-template-columns: 1fr;
   }
 

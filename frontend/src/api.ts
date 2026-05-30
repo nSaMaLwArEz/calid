@@ -1,4 +1,4 @@
-import type { AnalyticsResponse, BillDetail, MemberProfile, MemberSummary, VoteExplorerResponse } from "./types";
+import type { AnalyticsResponse, BillDetail, BillSummary, MemberProfile, MemberSummary, PaginatedResponse, VoteExplorerResponse } from "./types";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
@@ -23,8 +23,19 @@ export function searchMembers(params: {
   state?: string;
   party?: string;
   chamber?: string;
-}): Promise<MemberSummary[]> {
-  return request<MemberSummary[]>("/members", params);
+  limit?: number;
+  offset?: number;
+}): Promise<PaginatedResponse<MemberSummary>> {
+  return request<PaginatedResponse<MemberSummary>>("/members", params);
+}
+
+export function getBills(params: {
+  congress?: number;
+  bill_type?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PaginatedResponse<BillSummary>> {
+  return request<PaginatedResponse<BillSummary>>("/bills", params);
 }
 
 export function getMemberProfile(bioguideId: string): Promise<MemberProfile> {
