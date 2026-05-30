@@ -21,10 +21,7 @@ class LegislativeRepository:
         offset: int = 0,
     ) -> MemberListResponse:
         if self.congress_client.enabled:
-            try:
-                return await self.congress_client.search_members(query, state, party, chamber, limit, offset)
-            except Exception:
-                pass
+            return await self.congress_client.search_members(query, state, party, chamber, limit, offset)
 
         members = demo_data.MEMBERS
         if query:
@@ -46,10 +43,7 @@ class LegislativeRepository:
         offset: int = 0,
     ) -> BillListResponse:
         if self.congress_client.enabled:
-            try:
-                return await self.congress_client.bills(congress=congress, bill_type=bill_type, limit=limit, offset=offset)
-            except Exception:
-                pass
+            return await self.congress_client.bills(congress=congress, bill_type=bill_type, limit=limit, offset=offset)
 
         bills = [BillSummary(**bill.model_dump()) for bill in demo_data.BILLS]
         if congress:
@@ -61,22 +55,19 @@ class LegislativeRepository:
 
     async def member_profile(self, bioguide_id: str) -> MemberProfile | None:
         if self.congress_client.enabled:
-            try:
-                member = await self.congress_client.member(bioguide_id)
-                if not member:
-                    return None
-                sponsored = await self.congress_client.sponsored_legislation(bioguide_id)
-                cosponsored = await self.congress_client.cosponsored_legislation(bioguide_id)
-                return MemberProfile(
-                    **member.model_dump(),
-                    sponsored_bills=sponsored,
-                    cosponsored_bills=cosponsored,
-                    latest_actions=[],
-                    committees=[],
-                    bill_status_summaries=[self._status_line(bill) for bill in sponsored + cosponsored],
-                )
-            except Exception:
-                pass
+            member = await self.congress_client.member(bioguide_id)
+            if not member:
+                return None
+            sponsored = await self.congress_client.sponsored_legislation(bioguide_id)
+            cosponsored = await self.congress_client.cosponsored_legislation(bioguide_id)
+            return MemberProfile(
+                **member.model_dump(),
+                sponsored_bills=sponsored,
+                cosponsored_bills=cosponsored,
+                latest_actions=[],
+                committees=[],
+                bill_status_summaries=[self._status_line(bill) for bill in sponsored + cosponsored],
+            )
 
         member = next((item for item in demo_data.MEMBERS if item.bioguide_id == bioguide_id), None)
         return demo_data.build_profile(member) if member else None
@@ -84,13 +75,10 @@ class LegislativeRepository:
     async def bill_detail(self, bill_id: str) -> BillDetail | None:
         parts = bill_id.split("-")
         if len(parts) >= 3 and self.congress_client.enabled:
-            try:
-                congress = int(parts[0])
-                bill_type = parts[1]
-                number = parts[2]
-                return await self.congress_client.bill_detail(congress, bill_type, number)
-            except Exception:
-                pass
+            congress = int(parts[0])
+            bill_type = parts[1]
+            number = parts[2]
+            return await self.congress_client.bill_detail(congress, bill_type, number)
 
         return next((bill for bill in demo_data.BILLS if bill.id == bill_id), None)
 
@@ -100,11 +88,8 @@ class LegislativeRepository:
             "Senate votes, voice votes, and some bill-specific voting contexts may require another data source."
         )
         if self.congress_client.enabled:
-            try:
-                votes = await self.congress_client.house_votes(congress, session, limit)
-                return VoteExplorerResponse(votes=votes, note=note)
-            except Exception:
-                pass
+            votes = await self.congress_client.house_votes(congress, session, limit)
+            return VoteExplorerResponse(votes=votes, note=note)
 
         return VoteExplorerResponse(votes=demo_data.VOTES[:limit], note=f"{note} Showing demo votes because live data is unavailable.")
 

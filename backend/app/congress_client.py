@@ -20,7 +20,7 @@ class CongressClient:
             query.update(params)
 
         async with httpx.AsyncClient(base_url=str(self.settings.congress_api_base_url), timeout=20) as client:
-            response = await client.get(path, params=query)
+            response = await client.get(path.lstrip("/"), params=query)
             response.raise_for_status()
             return response.json()
 
