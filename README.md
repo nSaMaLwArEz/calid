@@ -45,6 +45,16 @@ npm run dev
 
 The frontend expects the backend at `http://localhost:8000`. Override with `VITE_API_BASE_URL`.
 
+To build the frontend into the FastAPI service:
+
+```powershell
+cd frontend
+npm install
+npm run build
+```
+
+The production build is emitted to `backend/static` and served by FastAPI at `/`.
+
 ## ETL Starter
 
 ```powershell

@@ -1,6 +1,7 @@
 import type { AnalyticsResponse, BillDetail, MemberProfile, MemberSummary, VoteExplorerResponse } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
 
 async function request<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const url = new URL(path, API_BASE_URL);

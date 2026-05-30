@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings, get_settings
@@ -12,6 +16,8 @@ def get_repository(settings: Settings = Depends(get_settings)) -> LegislativeRep
 
 
 app = FastAPI(title="CALID API", version="0.1.0")
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+INDEX_FILE = STATIC_DIR / "index.html"
 
 settings = get_settings()
 app.add_middleware(
@@ -24,7 +30,10 @@ app.add_middleware(
 
 
 @app.get("/")
-async def root() -> dict[str, str | list[str]]:
+async def root():
+    if INDEX_FILE.exists():
+        return FileResponse(INDEX_FILE)
+
     return {
         "name": "CALID API",
         "status": "live",
@@ -92,3 +101,13 @@ async def house_votes(
 @app.get("/analytics", response_model=AnalyticsResponse)
 async def analytics(repository: LegislativeRepository = Depends(get_repository)) -> AnalyticsResponse:
     return await repository.analytics()
+
+
+app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets", check_dir=False), name="assets")
+
+
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str):
+    if INDEX_FILE.exists() and "." not in Path(full_path).name:
+        return FileResponse(INDEX_FILE)
+    raise HTTPException(status_code=404, detail="Not found")
