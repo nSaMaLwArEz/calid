@@ -1,4 +1,6 @@
 from pathlib import Path
+import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -81,8 +83,22 @@ async def congress_diagnostics(settings: Settings = Depends(get_settings)) -> di
             return diagnostics
     except Exception as exc:
         diagnostics["status"] = "error"
-        diagnostics["error"] = str(exc)
+        diagnostics["error"] = _redact_api_key(str(exc))
         return diagnostics
+
+
+def _redact_api_key(message: str) -> str:
+    def redact_url(match: re.Match[str]) -> str:
+        parts = urlsplit(match.group(0))
+        if not parts.query:
+            return match.group(0)
+
+        query = urlencode(
+            [(key, "REDACTED" if key.lower() == "api_key" else value) for key, value in parse_qsl(parts.query, keep_blank_values=True)]
+        )
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+    return re.sub(r"https?://[^\s'\"]+", redact_url, message)
 
 
 @app.get("/members", response_model=MemberListResponse)
