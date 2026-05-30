@@ -4,5 +4,5 @@ gunicorn==23.0.0
 httpx==0.28.1
 pydantic-settings==2.7.1
 SQLAlchemy==2.0.36
-psycopg[binary]==3.2.3
+psycopg[binary]==3.2.13
 python-dotenv==1.0.1

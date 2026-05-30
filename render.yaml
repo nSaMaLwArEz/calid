@@ -8,5 +8,7 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      - key: PYTHON_VERSION
+        value: 3.13.5
       - key: CORS_ORIGINS
         value: https://calid.onrender.com
