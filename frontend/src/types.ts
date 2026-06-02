@@ -143,3 +143,28 @@ export type AnalyticsResponse = {
   topic_bills: AnalyticsCard[];
   issue_focus_profiles: AnalyticsCard[];
 };
+
+export type AnalyticsMetric = {
+  label: string;
+  value: string | number;
+  detail?: string | null;
+};
+
+export type VoteTrendPoint = {
+  month: string;
+  participated: number;
+  missed: number;
+  total_votes: number;
+};
+
+export type DashboardAnalyticsResponse = {
+  totals: AnalyticsMetric[];
+  vote_participation_over_time: VoteTrendPoint[];
+  most_active_legislators: AnalyticsMetric[];
+  bills_by_policy_area: AnalyticsMetric[];
+  bills_by_status: AnalyticsMetric[];
+  missed_vote_leaders: AnalyticsMetric[];
+  closest_votes: AnalyticsMetric[];
+  most_bipartisan_bills: AnalyticsMetric[];
+  note: string;
+};

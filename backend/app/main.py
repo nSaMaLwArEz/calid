@@ -13,7 +13,7 @@ from app.config import Settings, get_settings
 from app.congress_client import CongressClient
 from app.database import ensure_schema, get_db
 from app.repository import LegislativeRepository
-from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, HealthResponse, MemberListResponse, MemberProfile, MemberVotingProfile, VoteBillListResponse, VoteExplorerResponse, VoteMemberListResponse, VoteSyncResponse
+from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, DashboardAnalyticsResponse, HealthResponse, MemberListResponse, MemberProfile, MemberVotingProfile, VoteBillListResponse, VoteExplorerResponse, VoteMemberListResponse, VoteSyncResponse
 from app.vote_sync import sync_house_votes
 
 
@@ -226,6 +226,15 @@ async def house_votes(
 @app.get("/analytics", response_model=AnalyticsResponse)
 async def analytics(repository: LegislativeRepository = Depends(get_repository)) -> AnalyticsResponse:
     return await repository.analytics()
+
+
+@app.get("/analytics/dashboard", response_model=DashboardAnalyticsResponse)
+async def dashboard_analytics(
+    congress: int = Query(default=119, ge=1),
+    session: int = Query(default=1, ge=1, le=2),
+    repository: LegislativeRepository = Depends(get_repository),
+) -> DashboardAnalyticsResponse:
+    return await repository.dashboard_analytics(congress=congress, session=session)
 
 
 app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets", check_dir=False), name="assets")

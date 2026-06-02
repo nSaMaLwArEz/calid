@@ -1,10 +1,13 @@
 from collections import defaultdict
 
+from sqlalchemy import case, distinct, func, select
 from sqlalchemy.orm import Session
 
 from app import demo_data
 from app.congress_client import CongressClient
+from app.models import Bill, RollCallVote, VotePosition
 from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, BillSummary, MemberListResponse, MemberProfile, MemberSummary, MemberVotingProfile, MonthlyVoteSummary, Vote, VoteBillListResponse, VoteBillSummary, VoteExplorerResponse, VoteMemberListResponse
+from app.schemas import AnalyticsMetric, DashboardAnalyticsResponse, VoteTrendPoint
 from app.vote_cache import cached_member_voting_profile, cached_vote_bills, cached_vote_members, has_cached_votes
 
 
@@ -215,6 +218,49 @@ class LegislativeRepository:
     async def analytics(self) -> AnalyticsResponse:
         return AnalyticsResponse(**demo_data.ANALYTICS)
 
+    async def dashboard_analytics(self, congress: int = 119, session: int = 1) -> DashboardAnalyticsResponse:
+        note = "Analytics use cached House roll-call data when available. Bill topic/status summaries use cached bills or a live Congress.gov page sample."
+        if self.db and has_cached_votes(self.db, congress, session):
+            totals = self._cached_total_metrics(congress, session)
+            return DashboardAnalyticsResponse(
+                totals=totals,
+                vote_participation_over_time=self._cached_vote_trends(congress, session),
+                most_active_legislators=self._cached_most_active_legislators(congress, session),
+                bills_by_policy_area=await self._bill_policy_metrics(congress),
+                bills_by_status=await self._bill_status_metrics(congress),
+                missed_vote_leaders=self._cached_missed_vote_leaders(congress, session),
+                closest_votes=self._cached_closest_votes(congress, session),
+                most_bipartisan_bills=self._bipartisan_placeholders(),
+                note=note,
+            )
+
+        bills = await self._sample_bills(congress)
+        return DashboardAnalyticsResponse(
+            totals=[
+                AnalyticsMetric(label="Bills Sampled", value=len(bills), detail="Live or demo bill records loaded for this dashboard"),
+                AnalyticsMetric(label="Roll-call Votes", value=len(demo_data.VOTES), detail="Demo vote records until House vote cache is synced"),
+                AnalyticsMetric(label="Vote Positions", value=len(demo_data.VOTE_MEMBERS), detail="Demo vote positions until House vote cache is synced"),
+                AnalyticsMetric(label="Legislators", value=len(demo_data.MEMBERS), detail="Demo members or current search sample"),
+            ],
+            vote_participation_over_time=[
+                VoteTrendPoint(month=item.month, participated=item.participated, missed=item.missed, total_votes=item.total)
+                for item in self._monthly_summary(demo_data.VOTES, demo_data.VOTES)
+            ],
+            most_active_legislators=self._cards_to_metrics(demo_data.ANALYTICS["most_active_legislators"]),
+            bills_by_policy_area=self._group_bills(bills, "policy_area"),
+            bills_by_status=self._group_bills(bills, "status"),
+            missed_vote_leaders=[
+                AnalyticsMetric(label=member.name, value=1 if member.vote.lower() == "not voting" else 0, detail=member.vote)
+                for member in demo_data.VOTE_MEMBERS
+            ],
+            closest_votes=[
+                AnalyticsMetric(label=vote.question, value=abs(vote.yea - vote.nay), detail=f"Yea {vote.yea}, Nay {vote.nay}")
+                for vote in demo_data.VOTE_BILLS
+            ],
+            most_bipartisan_bills=self._cards_to_metrics(demo_data.ANALYTICS["most_bipartisan_bills"]),
+            note=f"{note} Sync House votes to PostgreSQL for full historical analytics.",
+        )
+
     def _status_line(self, bill: BillSummary) -> str:
         label = f"{bill.bill_type.upper()} {bill.number}"
         return f"{label}: {bill.status or bill.latest_action or 'Status unavailable'}"
@@ -250,3 +296,129 @@ class LegislativeRepository:
             )
             for month, total in sorted(total_by_month.items())
         ]
+
+    def _cached_total_metrics(self, congress: int, session: int) -> list[AnalyticsMetric]:
+        vote_count = self.db.scalar(
+            select(func.count(RollCallVote.id)).where(RollCallVote.congress == congress, RollCallVote.session == session)
+        ) or 0
+        position_count = self.db.scalar(
+            select(func.count(VotePosition.id))
+            .join(RollCallVote)
+            .where(RollCallVote.congress == congress, RollCallVote.session == session)
+        ) or 0
+        legislator_count = self.db.scalar(
+            select(func.count(distinct(VotePosition.member_bioguide_id)))
+            .join(RollCallVote)
+            .where(RollCallVote.congress == congress, RollCallVote.session == session)
+        ) or 0
+        bill_count = self.db.scalar(select(func.count(Bill.id)).where(Bill.congress == congress)) or 0
+        return [
+            AnalyticsMetric(label="Legislators", value=legislator_count, detail="Distinct members with cached vote positions"),
+            AnalyticsMetric(label="Bills", value=bill_count, detail="Bills stored locally"),
+            AnalyticsMetric(label="Roll-call Votes", value=vote_count, detail="Cached House roll-call votes"),
+            AnalyticsMetric(label="Vote Positions", value=position_count, detail="Cached member vote positions"),
+        ]
+
+    def _cached_vote_trends(self, congress: int, session: int) -> list[VoteTrendPoint]:
+        rows = self.db.execute(
+            select(
+                func.substr(RollCallVote.date, 1, 7).label("month"),
+                func.count(distinct(RollCallVote.id)).label("total_votes"),
+                func.sum(case((func.lower(VotePosition.vote).in_(["yea", "aye", "yes", "nay", "no", "present"]), 1), else_=0)).label("participated"),
+                func.sum(case((func.lower(VotePosition.vote).in_(["not voting", "not-voting", "absent", "missing"]), 1), else_=0)).label("missed"),
+            )
+            .join(VotePosition, VotePosition.roll_call_vote_id == RollCallVote.id)
+            .where(RollCallVote.congress == congress, RollCallVote.session == session, RollCallVote.date.is_not(None))
+            .group_by("month")
+            .order_by("month")
+        ).all()
+        return [
+            VoteTrendPoint(month=row.month, participated=int(row.participated or 0), missed=int(row.missed or 0), total_votes=int(row.total_votes or 0))
+            for row in rows
+        ]
+
+    def _cached_most_active_legislators(self, congress: int, session: int) -> list[AnalyticsMetric]:
+        rows = self.db.execute(
+            select(
+                VotePosition.member_name,
+                func.count(VotePosition.id).label("participated"),
+            )
+            .join(RollCallVote)
+            .where(
+                RollCallVote.congress == congress,
+                RollCallVote.session == session,
+                func.lower(VotePosition.vote).not_in(["not voting", "not-voting", "absent", "missing"]),
+            )
+            .group_by(VotePosition.member_name)
+            .order_by(func.count(VotePosition.id).desc())
+            .limit(10)
+        ).all()
+        return [
+            AnalyticsMetric(label=row.member_name, value=int(row.participated), detail="Participated roll-call votes in cache")
+            for row in rows
+        ]
+
+    def _cached_missed_vote_leaders(self, congress: int, session: int) -> list[AnalyticsMetric]:
+        rows = self.db.execute(
+            select(VotePosition.member_name, func.count(VotePosition.id).label("missed"))
+            .join(RollCallVote)
+            .where(
+                RollCallVote.congress == congress,
+                RollCallVote.session == session,
+                func.lower(VotePosition.vote).in_(["not voting", "not-voting", "absent", "missing"]),
+            )
+            .group_by(VotePosition.member_name)
+            .order_by(func.count(VotePosition.id).desc())
+            .limit(10)
+        ).all()
+        return [AnalyticsMetric(label=row.member_name, value=int(row.missed), detail="Cached not voting records") for row in rows]
+
+    def _cached_closest_votes(self, congress: int, session: int) -> list[AnalyticsMetric]:
+        items, _total = cached_vote_bills(self.db, congress, session, limit=250, offset=0)
+        closest = sorted(items, key=lambda vote: abs(vote.yea - vote.nay))[:10]
+        return [
+            AnalyticsMetric(label=f"Roll {vote.roll_call_number}: {vote.question}", value=abs(vote.yea - vote.nay), detail=f"Yea {vote.yea}, Nay {vote.nay}")
+            for vote in closest
+        ]
+
+    async def _sample_bills(self, congress: int) -> list[BillSummary]:
+        if self.db:
+            cached = self.db.scalars(select(Bill).where(Bill.congress == congress).limit(250)).all()
+            if cached:
+                return [
+                    BillSummary(
+                        id=bill.id,
+                        congress=bill.congress,
+                        bill_type=bill.bill_type,
+                        number=bill.number,
+                        title=bill.title,
+                        latest_action=bill.latest_action,
+                        latest_action_date=bill.latest_action_date,
+                        policy_area=bill.policy_area,
+                    )
+                    for bill in cached
+                ]
+        try:
+            response = await self.bills(congress=congress, limit=100, offset=0)
+            return response.items
+        except Exception:
+            return [BillSummary(**bill.model_dump()) for bill in demo_data.BILLS]
+
+    async def _bill_policy_metrics(self, congress: int) -> list[AnalyticsMetric]:
+        return self._group_bills(await self._sample_bills(congress), "policy_area")
+
+    async def _bill_status_metrics(self, congress: int) -> list[AnalyticsMetric]:
+        return self._group_bills(await self._sample_bills(congress), "status")
+
+    def _group_bills(self, bills: list[BillSummary], field: str) -> list[AnalyticsMetric]:
+        counts: dict[str, int] = defaultdict(int)
+        for bill in bills:
+            value = getattr(bill, field) or "Unavailable"
+            counts[value] += 1
+        return [AnalyticsMetric(label=label, value=value) for label, value in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:10]]
+
+    def _bipartisan_placeholders(self) -> list[AnalyticsMetric]:
+        return self._cards_to_metrics(demo_data.ANALYTICS["most_bipartisan_bills"])
+
+    def _cards_to_metrics(self, cards) -> list[AnalyticsMetric]:
+        return [AnalyticsMetric(label=item.label, value=item.value, detail=item.detail) for item in cards]

@@ -4,6 +4,7 @@ import { BarChart3, FileText, Search, UserRound, Vote } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   getBillDetail,
+  getDashboardAnalytics,
   getMemberProfile,
   getMemberVotingProfile,
   getVoteBills,
@@ -12,6 +13,7 @@ import {
 } from "./api";
 import type {
   BillDetail,
+  DashboardAnalyticsResponse,
   BillSummary,
   MemberProfile,
   MemberSummary,
@@ -28,7 +30,7 @@ const chamberOptions = ["", "House", "Senate"];
 const partyOptions = ["", "Democratic", "Republican", "Independent"];
 
 function App() {
-  const [page, setPage] = React.useState<"members" | "bills">("members");
+  const [page, setPage] = React.useState<"members" | "bills" | "analytics">("members");
   const [query, setQuery] = React.useState("");
   const [state, setState] = React.useState("");
   const [party, setParty] = React.useState("");
@@ -42,11 +44,13 @@ function App() {
   const [voteBills, setVoteBills] = React.useState<VoteBillListResponse | null>(null);
   const [voteOffset, setVoteOffset] = React.useState(0);
   const [selectedVoteRoster, setSelectedVoteRoster] = React.useState<VoteMemberListResponse | null>(null);
+  const [dashboardAnalytics, setDashboardAnalytics] = React.useState<DashboardAnalyticsResponse | null>(null);
   const [status, setStatus] = React.useState("Ready");
 
   React.useEffect(() => {
     void loadMembers(0);
     void loadVoteBills(0);
+    void loadDashboardAnalytics();
   }, []);
 
   async function loadMembers(offset: number) {
@@ -103,6 +107,16 @@ function App() {
     setStatus("Vote roster loaded");
   }
 
+  async function loadDashboardAnalytics() {
+    setStatus("Loading analytics");
+    try {
+      setDashboardAnalytics(await getDashboardAnalytics(119, 1));
+      setStatus("Analytics loaded");
+    } catch {
+      setStatus("Analytics unavailable");
+    }
+  }
+
   return (
     <main className="app-shell">
       <nav className="topnav">
@@ -118,6 +132,10 @@ function App() {
           <button className={page === "bills" ? "selected" : ""} onClick={() => setPage("bills")}>
             <FileText size={17} />
             Bills
+          </button>
+          <button className={page === "analytics" ? "selected" : ""} onClick={() => setPage("analytics")}>
+            <BarChart3 size={17} />
+            Analytics
           </button>
           <span className="status-pill">{status}</span>
         </div>
@@ -144,7 +162,7 @@ function App() {
           onOpenMember={openMember}
           onOpenBill={(billId) => void openBill(billId)}
         />
-      ) : (
+      ) : page === "bills" ? (
         <BillsPage
           voteBills={voteBills}
           voteOffset={voteOffset}
@@ -154,8 +172,125 @@ function App() {
           onOpenRoster={openVoteRoster}
           onOpenBill={(billId) => void openBill(billId, false)}
         />
+      ) : (
+        <AnalyticsPage analytics={dashboardAnalytics} onRefresh={() => void loadDashboardAnalytics()} />
       )}
     </main>
+  );
+}
+
+function AnalyticsPage({ analytics, onRefresh }: { analytics: DashboardAnalyticsResponse | null; onRefresh: () => void }) {
+  const policyData = (analytics?.bills_by_policy_area ?? []).map((item) => ({ name: item.label, value: Number(item.value) || 0 }));
+  const statusData = (analytics?.bills_by_status ?? []).map((item) => ({ name: item.label, value: Number(item.value) || 0 }));
+
+  return (
+    <section className="detail-stack full">
+      <section className="analytics-header">
+        <div>
+          <p className="eyebrow">Analytics</p>
+          <h2>Congressional Data Summary</h2>
+          <p>{analytics?.note || "Loading aggregate metrics."}</p>
+        </div>
+        <button className="primary-button" onClick={onRefresh}>Refresh</button>
+      </section>
+
+      <section className="analytics-kpis">
+        {(analytics?.totals ?? []).map((metric) => (
+          <div className="metric" key={metric.label}>
+            <strong>{metric.value}</strong>
+            <small>{metric.label}</small>
+            {metric.detail && <span>{metric.detail}</span>}
+          </div>
+        ))}
+      </section>
+
+      <section className="content-grid">
+        <Panel title="Vote Participation Over Time" icon={<BarChart3 size={18} />}>
+          <div className="chart-wrap tall">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={analytics?.vote_participation_over_time ?? []}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="participated" stackId="positions" fill="#2f6f73" />
+                <Bar dataKey="missed" stackId="positions" fill="#b65f3a" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+
+        <Panel title="Most Active Legislators" icon={<UserRound size={18} />}>
+          <MetricList items={analytics?.most_active_legislators ?? []} />
+        </Panel>
+      </section>
+
+      <section className="content-grid">
+        <Panel title="Bills By Policy Area" icon={<FileText size={18} />}>
+          <SmallBarChart data={policyData} />
+        </Panel>
+        <Panel title="Bills By Status" icon={<FileText size={18} />}>
+          <SmallBarChart data={statusData} />
+        </Panel>
+      </section>
+
+      <section className="content-grid">
+        <Panel title="Missed Vote Leaders" icon={<Vote size={18} />}>
+          <MetricList items={analytics?.missed_vote_leaders ?? []} />
+        </Panel>
+        <Panel title="Closest Votes" icon={<Vote size={18} />}>
+          <MetricList items={analytics?.closest_votes ?? []} />
+        </Panel>
+      </section>
+
+      <Panel title="Most Bipartisan Bills" icon={<FileText size={18} />}>
+        <div className="compact-bill-list">
+          {(analytics?.most_bipartisan_bills ?? []).map((item) => (
+            <div className="analytics-card" key={item.label}>
+              <span>{item.value}</span>
+              <strong>{item.label}</strong>
+              {item.detail && <small>{item.detail}</small>}
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function MetricList({ items }: { items: { label: string; value: string | number; detail?: string | null }[] }) {
+  if (!items.length) {
+    return <p className="muted">No data available yet. Sync vote and bill data to populate this section.</p>;
+  }
+  return (
+    <div className="analytics-list">
+      {items.map((item) => (
+        <div key={item.label}>
+          <strong>{item.label}</strong>
+          <span>{item.value}{item.detail ? ` - ${item.detail}` : ""}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SmallBarChart({ data }: { data: { name: string; value: number }[] }) {
+  if (!data.length) {
+    return <p className="muted">No bill data available yet.</p>;
+  }
+  return (
+    <div className="chart-wrap">
+      <ResponsiveContainer width="100%" height={210}>
+        <BarChart data={data.slice(0, 8)} layout="vertical" margin={{ left: 18 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+          <XAxis type="number" allowDecimals={false} />
+          <YAxis type="category" dataKey="name" width={110} />
+          <Tooltip />
+          <Bar dataKey="value" fill="#2f6f73" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 

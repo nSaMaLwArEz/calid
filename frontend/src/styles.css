@@ -111,6 +111,29 @@ button {
   padding: 20px;
 }
 
+.analytics-header {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+
+.analytics-header h2 {
+  font-size: 1.55rem;
+  margin: 0;
+}
+
+.analytics-header p {
+  color: #5b676b;
+  margin: 5px 0 0;
+}
+
+.analytics-kpis {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
 .search-form {
   display: grid;
   gap: 14px;
@@ -175,7 +198,8 @@ select {
 .compact-bill-list,
 .vote-history-list,
 .vote-bill-list,
-.roster-list {
+.roster-list,
+.analytics-list {
   display: grid;
   gap: 8px;
 }
@@ -267,6 +291,13 @@ select {
   font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.metric span {
+  color: #687579;
+  display: block;
+  font-size: 0.78rem;
+  margin-top: 5px;
 }
 
 .content-grid {
@@ -406,6 +437,22 @@ select {
   padding: 8px 0;
 }
 
+.analytics-list div,
+.analytics-card {
+  background: #f8fafa;
+  border: 1px solid #e0e6e6;
+  border-radius: 7px;
+  padding: 9px 10px;
+}
+
+.analytics-list span,
+.analytics-card small,
+.analytics-card span {
+  color: #687579;
+  display: block;
+  font-size: 0.82rem;
+}
+
 .bill-code {
   color: #9a5d28;
   font-size: 0.76rem;
@@ -518,6 +565,7 @@ dd {
   }
 
   .metric-strip,
+  .analytics-kpis,
   .field-row,
   .vote-bill-row {
     grid-template-columns: 1fr;

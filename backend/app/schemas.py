@@ -166,6 +166,31 @@ class AnalyticsResponse(BaseModel):
     issue_focus_profiles: list[AnalyticsCard]
 
 
+class AnalyticsMetric(BaseModel):
+    label: str
+    value: int | float | str
+    detail: str | None = None
+
+
+class VoteTrendPoint(BaseModel):
+    month: str
+    participated: int
+    missed: int
+    total_votes: int
+
+
+class DashboardAnalyticsResponse(BaseModel):
+    totals: list[AnalyticsMetric]
+    vote_participation_over_time: list[VoteTrendPoint]
+    most_active_legislators: list[AnalyticsMetric]
+    bills_by_policy_area: list[AnalyticsMetric]
+    bills_by_status: list[AnalyticsMetric]
+    missed_vote_leaders: list[AnalyticsMetric]
+    closest_votes: list[AnalyticsMetric]
+    most_bipartisan_bills: list[AnalyticsMetric]
+    note: str
+
+
 class HealthResponse(BaseModel):
     status: str
     data_mode: str

@@ -2,6 +2,7 @@ import type {
   AnalyticsResponse,
   BillDetail,
   BillSummary,
+  DashboardAnalyticsResponse,
   MemberProfile,
   MemberSummary,
   MemberVotingProfile,
@@ -75,4 +76,8 @@ export function getVoteMembers(congress: number, session: number, rollCallNumber
 
 export function getAnalytics(): Promise<AnalyticsResponse> {
   return request<AnalyticsResponse>("/analytics");
+}
+
+export function getDashboardAnalytics(congress = 119, session = 1): Promise<DashboardAnalyticsResponse> {
+  return request<DashboardAnalyticsResponse>("/analytics/dashboard", { congress, session });
 }
