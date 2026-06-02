@@ -157,6 +157,12 @@ export type VoteTrendPoint = {
   total_votes: number;
 };
 
+export type AnalyticsDateRange = {
+  start_date?: string | null;
+  end_date?: string | null;
+  group_by: "month" | "calendar_year" | "congress_year";
+};
+
 export type DashboardAnalyticsResponse = {
   totals: AnalyticsMetric[];
   vote_participation_over_time: VoteTrendPoint[];
@@ -166,5 +172,6 @@ export type DashboardAnalyticsResponse = {
   missed_vote_leaders: AnalyticsMetric[];
   closest_votes: AnalyticsMetric[];
   most_bipartisan_bills: AnalyticsMetric[];
+  date_range: AnalyticsDateRange;
   note: string;
 };

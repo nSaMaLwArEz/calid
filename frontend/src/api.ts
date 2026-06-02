@@ -78,6 +78,12 @@ export function getAnalytics(): Promise<AnalyticsResponse> {
   return request<AnalyticsResponse>("/analytics");
 }
 
-export function getDashboardAnalytics(congress = 119, session = 1): Promise<DashboardAnalyticsResponse> {
-  return request<DashboardAnalyticsResponse>("/analytics/dashboard", { congress, session });
+export function getDashboardAnalytics(params: {
+  congress?: number;
+  session?: number;
+  start_date?: string;
+  end_date?: string;
+  group_by?: "month" | "calendar_year" | "congress_year";
+}): Promise<DashboardAnalyticsResponse> {
+  return request<DashboardAnalyticsResponse>("/analytics/dashboard", params);
 }

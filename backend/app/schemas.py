@@ -179,6 +179,12 @@ class VoteTrendPoint(BaseModel):
     total_votes: int
 
 
+class AnalyticsDateRange(BaseModel):
+    start_date: str | None = None
+    end_date: str | None = None
+    group_by: str = "month"
+
+
 class DashboardAnalyticsResponse(BaseModel):
     totals: list[AnalyticsMetric]
     vote_participation_over_time: list[VoteTrendPoint]
@@ -188,6 +194,7 @@ class DashboardAnalyticsResponse(BaseModel):
     missed_vote_leaders: list[AnalyticsMetric]
     closest_votes: list[AnalyticsMetric]
     most_bipartisan_bills: list[AnalyticsMetric]
+    date_range: AnalyticsDateRange
     note: str
 
 

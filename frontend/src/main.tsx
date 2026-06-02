@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BarChart3, FileText, Search, UserRound, Vote } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { BarChart3, CalendarDays, FileText, Search, UserRound, Vote } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   getBillDetail,
   getDashboardAnalytics,
@@ -28,6 +28,9 @@ const pageSize = 50;
 const votePageSize = 10;
 const chamberOptions = ["", "House", "Senate"];
 const partyOptions = ["", "Democratic", "Republican", "Independent"];
+const defaultAnalyticsStart = "2025-01-03";
+const defaultAnalyticsEnd = "2027-01-02";
+type AnalyticsGroupBy = "month" | "calendar_year" | "congress_year";
 
 function App() {
   const [page, setPage] = React.useState<"members" | "bills" | "analytics">("members");
@@ -45,6 +48,9 @@ function App() {
   const [voteOffset, setVoteOffset] = React.useState(0);
   const [selectedVoteRoster, setSelectedVoteRoster] = React.useState<VoteMemberListResponse | null>(null);
   const [dashboardAnalytics, setDashboardAnalytics] = React.useState<DashboardAnalyticsResponse | null>(null);
+  const [analyticsStartDate, setAnalyticsStartDate] = React.useState(defaultAnalyticsStart);
+  const [analyticsEndDate, setAnalyticsEndDate] = React.useState(defaultAnalyticsEnd);
+  const [analyticsGroupBy, setAnalyticsGroupBy] = React.useState<AnalyticsGroupBy>("month");
   const [status, setStatus] = React.useState("Ready");
 
   React.useEffect(() => {
@@ -107,10 +113,21 @@ function App() {
     setStatus("Vote roster loaded");
   }
 
-  async function loadDashboardAnalytics() {
+  async function loadDashboardAnalytics(overrides?: { start_date?: string; end_date?: string; group_by?: AnalyticsGroupBy }) {
     setStatus("Loading analytics");
+    const start_date = overrides?.start_date ?? analyticsStartDate;
+    const end_date = overrides?.end_date ?? analyticsEndDate;
+    const group_by = overrides?.group_by ?? analyticsGroupBy;
     try {
-      setDashboardAnalytics(await getDashboardAnalytics(119, 1));
+      setDashboardAnalytics(
+        await getDashboardAnalytics({
+          congress: 119,
+          session: 1,
+          start_date,
+          end_date,
+          group_by,
+        }),
+      );
       setStatus("Analytics loaded");
     } catch {
       setStatus("Analytics unavailable");
@@ -173,15 +190,55 @@ function App() {
           onOpenBill={(billId) => void openBill(billId, false)}
         />
       ) : (
-        <AnalyticsPage analytics={dashboardAnalytics} onRefresh={() => void loadDashboardAnalytics()} />
+        <AnalyticsPage
+          analytics={dashboardAnalytics}
+          startDate={analyticsStartDate}
+          setStartDate={setAnalyticsStartDate}
+          endDate={analyticsEndDate}
+          setEndDate={setAnalyticsEndDate}
+          groupBy={analyticsGroupBy}
+          setGroupBy={setAnalyticsGroupBy}
+          onRefresh={() => void loadDashboardAnalytics()}
+          onReset={() => {
+            setAnalyticsStartDate(defaultAnalyticsStart);
+            setAnalyticsEndDate(defaultAnalyticsEnd);
+            setAnalyticsGroupBy("month");
+            void loadDashboardAnalytics({
+              start_date: defaultAnalyticsStart,
+              end_date: defaultAnalyticsEnd,
+              group_by: "month",
+            });
+          }}
+        />
       )}
     </main>
   );
 }
 
-function AnalyticsPage({ analytics, onRefresh }: { analytics: DashboardAnalyticsResponse | null; onRefresh: () => void }) {
+function AnalyticsPage({
+  analytics,
+  startDate,
+  setStartDate,
+  endDate,
+  setEndDate,
+  groupBy,
+  setGroupBy,
+  onRefresh,
+  onReset,
+}: {
+  analytics: DashboardAnalyticsResponse | null;
+  startDate: string;
+  setStartDate: (value: string) => void;
+  endDate: string;
+  setEndDate: (value: string) => void;
+  groupBy: AnalyticsGroupBy;
+  setGroupBy: (value: AnalyticsGroupBy) => void;
+  onRefresh: () => void;
+  onReset: () => void;
+}) {
   const policyData = (analytics?.bills_by_policy_area ?? []).map((item) => ({ name: item.label, value: Number(item.value) || 0 }));
   const statusData = (analytics?.bills_by_status ?? []).map((item) => ({ name: item.label, value: Number(item.value) || 0 }));
+  const appliedRange = analytics?.date_range;
 
   return (
     <section className="detail-stack full">
@@ -190,8 +247,37 @@ function AnalyticsPage({ analytics, onRefresh }: { analytics: DashboardAnalytics
           <p className="eyebrow">Analytics</p>
           <h2>Congressional Data Summary</h2>
           <p>{analytics?.note || "Loading aggregate metrics."}</p>
+          {appliedRange && (
+            <p className="applied-range">
+              {appliedRange.start_date} to {appliedRange.end_date} - {groupLabel(appliedRange.group_by)}
+            </p>
+          )}
         </div>
         <button className="primary-button" onClick={onRefresh}>Refresh</button>
+      </section>
+
+      <section className="filter-strip" aria-label="Analytics date filters">
+        <label>
+          Start Date
+          <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+        </label>
+        <label>
+          End Date
+          <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+        </label>
+        <label>
+          Group
+          <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as AnalyticsGroupBy)}>
+            <option value="month">Month</option>
+            <option value="calendar_year">Calendar Year</option>
+            <option value="congress_year">Congress Year</option>
+          </select>
+        </label>
+        <button className="primary-button" onClick={onRefresh}>
+          <CalendarDays size={17} />
+          Apply
+        </button>
+        <button className="secondary-button" onClick={onReset}>Reset Congress</button>
       </section>
 
       <section className="analytics-kpis">
@@ -208,7 +294,7 @@ function AnalyticsPage({ analytics, onRefresh }: { analytics: DashboardAnalytics
         <Panel title="Vote Participation Over Time" icon={<BarChart3 size={18} />}>
           <div className="chart-wrap tall">
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={analytics?.vote_participation_over_time ?? []}>
+              <ComposedChart data={analytics?.vote_participation_over_time ?? []}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" />
                 <YAxis allowDecimals={false} />
@@ -216,7 +302,8 @@ function AnalyticsPage({ analytics, onRefresh }: { analytics: DashboardAnalytics
                 <Legend />
                 <Bar dataKey="participated" stackId="positions" fill="#2f6f73" />
                 <Bar dataKey="missed" stackId="positions" fill="#b65f3a" />
-              </BarChart>
+                <Line type="monotone" dataKey="total_votes" name="total votes" stroke="#182126" strokeWidth={2} dot={{ r: 3 }} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </Panel>
@@ -257,6 +344,16 @@ function AnalyticsPage({ analytics, onRefresh }: { analytics: DashboardAnalytics
       </Panel>
     </section>
   );
+}
+
+function groupLabel(value: string) {
+  if (value === "calendar_year") {
+    return "calendar year";
+  }
+  if (value === "congress_year") {
+    return "Congress year";
+  }
+  return "month";
 }
 
 function MetricList({ items }: { items: { label: string; value: string | number; detail?: string | null }[] }) {

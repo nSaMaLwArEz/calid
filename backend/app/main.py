@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -292,9 +293,18 @@ async def analytics(repository: LegislativeRepository = Depends(get_repository))
 async def dashboard_analytics(
     congress: int = Query(default=119, ge=1),
     session: int = Query(default=1, ge=1, le=2),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    group_by: str = Query(default="month", pattern="^(month|calendar_year|congress_year)$"),
     repository: LegislativeRepository = Depends(get_repository),
 ) -> DashboardAnalyticsResponse:
-    return await repository.dashboard_analytics(congress=congress, session=session)
+    return await repository.dashboard_analytics(
+        congress=congress,
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+        group_by=group_by,
+    )
 
 
 app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets", check_dir=False), name="assets")
