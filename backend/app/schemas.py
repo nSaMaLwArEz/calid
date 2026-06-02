@@ -194,5 +194,13 @@ class DashboardAnalyticsResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     data_mode: str
+    congress_api_configured: bool = False
+    congress_api_status: str | None = None
+    congress_api_error: str | None = None
+    cache_enabled: bool = False
+    cached_roll_call_votes: int = 0
+    cached_vote_positions: int = 0
+    demo_fallback_active: bool = False
+    demo_fallback_reason: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

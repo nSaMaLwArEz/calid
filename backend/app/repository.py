@@ -7,7 +7,7 @@ from app import demo_data
 from app.congress_client import CongressClient
 from app.models import Bill, RollCallVote, VotePosition
 from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, BillSummary, MemberListResponse, MemberProfile, MemberSummary, MemberVotingProfile, MonthlyVoteSummary, Vote, VoteBillListResponse, VoteBillSummary, VoteExplorerResponse, VoteMemberListResponse
-from app.schemas import AnalyticsMetric, DashboardAnalyticsResponse, VoteTrendPoint
+from app.schemas import AnalyticsCard, AnalyticsMetric, DashboardAnalyticsResponse, VoteTrendPoint
 from app.vote_cache import cached_member_voting_profile, cached_vote_bills, cached_vote_members, has_cached_votes
 
 
@@ -216,6 +216,20 @@ class LegislativeRepository:
         )
 
     async def analytics(self) -> AnalyticsResponse:
+        if self.congress_client.enabled:
+            pending = [
+                self._etl_required_card(
+                    "Analytics Require Vote Cache",
+                    "Sync House vote rosters and bill/cosponsor ETL before this legacy endpoint can calculate live analytics.",
+                )
+            ]
+            return AnalyticsResponse(
+                most_active_legislators=pending,
+                most_bipartisan_bills=pending,
+                party_alignment=pending,
+                topic_bills=pending,
+                issue_focus_profiles=pending,
+            )
         return AnalyticsResponse(**demo_data.ANALYTICS)
 
     async def dashboard_analytics(self, congress: int = 119, session: int = 1) -> DashboardAnalyticsResponse:
@@ -230,17 +244,20 @@ class LegislativeRepository:
                 bills_by_status=await self._bill_status_metrics(congress),
                 missed_vote_leaders=self._cached_missed_vote_leaders(congress, session),
                 closest_votes=self._cached_closest_votes(congress, session),
-                most_bipartisan_bills=self._bipartisan_placeholders(),
+                most_bipartisan_bills=self._bipartisan_metrics(),
                 note=note,
             )
 
-        bills = await self._sample_bills(congress)
+        if self.congress_client.enabled:
+            return await self._live_uncached_dashboard(congress, session)
+
+        bills = await self._sample_bills(congress, allow_demo=True)
         return DashboardAnalyticsResponse(
             totals=[
-                AnalyticsMetric(label="Bills Sampled", value=len(bills), detail="Live or demo bill records loaded for this dashboard"),
+                AnalyticsMetric(label="Bills Sampled", value=len(bills), detail="Demo bill records loaded for this dashboard"),
                 AnalyticsMetric(label="Roll-call Votes", value=len(demo_data.VOTES), detail="Demo vote records until House vote cache is synced"),
                 AnalyticsMetric(label="Vote Positions", value=len(demo_data.VOTE_MEMBERS), detail="Demo vote positions until House vote cache is synced"),
-                AnalyticsMetric(label="Legislators", value=len(demo_data.MEMBERS), detail="Demo members or current search sample"),
+                AnalyticsMetric(label="Legislators", value=len(demo_data.MEMBERS), detail="Demo members"),
             ],
             vote_participation_over_time=[
                 VoteTrendPoint(month=item.month, participated=item.participated, missed=item.missed, total_votes=item.total)
@@ -257,8 +274,8 @@ class LegislativeRepository:
                 AnalyticsMetric(label=vote.question, value=abs(vote.yea - vote.nay), detail=f"Yea {vote.yea}, Nay {vote.nay}")
                 for vote in demo_data.VOTE_BILLS
             ],
-            most_bipartisan_bills=self._cards_to_metrics(demo_data.ANALYTICS["most_bipartisan_bills"]),
-            note=f"{note} Sync House votes to PostgreSQL for full historical analytics.",
+            most_bipartisan_bills=self._bipartisan_metrics(),
+            note="Demo analytics are active because CONGRESS_API_KEY is not configured.",
         )
 
     def _status_line(self, bill: BillSummary) -> str:
@@ -381,7 +398,53 @@ class LegislativeRepository:
             for vote in closest
         ]
 
-    async def _sample_bills(self, congress: int) -> list[BillSummary]:
+    async def _live_uncached_dashboard(self, congress: int, session: int) -> DashboardAnalyticsResponse:
+        try:
+            members = await self.congress_client.search_members(None, None, None, None, limit=1, offset=0)
+            bill_response = await self.congress_client.bills(congress=congress, bill_type=None, limit=100, offset=0)
+            votes, total_votes = await self.congress_client.house_vote_page(congress, session, limit=1, offset=0)
+            bill_total = bill_response.total if bill_response.total is not None else len(bill_response.items)
+            member_total = members.total if members.total is not None else len(members.items)
+            vote_total = total_votes if total_votes is not None else len(votes)
+            bills = bill_response.items
+            note = (
+                "Connected to Congress.gov, but the House vote roster cache is empty. "
+                "Run /admin/sync/house-votes to populate historical vote counts, participation trends, missed votes, and member-level rosters."
+            )
+        except Exception:
+            return DashboardAnalyticsResponse(
+                totals=[
+                    AnalyticsMetric(label="Congress.gov", value="error", detail="Live probe failed"),
+                    AnalyticsMetric(label="Roll-call Cache", value=0, detail="No cached vote history is available"),
+                ],
+                vote_participation_over_time=[],
+                most_active_legislators=[],
+                bills_by_policy_area=[],
+                bills_by_status=[],
+                missed_vote_leaders=[],
+                closest_votes=[],
+                most_bipartisan_bills=[],
+                note="Congress.gov is configured, but the live analytics probe failed. Check /diagnostics/data for the redacted upstream error.",
+            )
+
+        return DashboardAnalyticsResponse(
+            totals=[
+                AnalyticsMetric(label="Legislators", value=member_total, detail="Live Congress.gov member count"),
+                AnalyticsMetric(label="Bills", value=bill_total, detail="Live Congress.gov bill count for this Congress"),
+                AnalyticsMetric(label="House Roll-call Votes", value=vote_total, detail="Live Congress.gov vote count for this Congress/session"),
+                AnalyticsMetric(label="Cached Vote Positions", value=0, detail="Database cache has not been synced yet"),
+            ],
+            vote_participation_over_time=[],
+            most_active_legislators=[],
+            bills_by_policy_area=self._group_bills(bills, "policy_area"),
+            bills_by_status=self._group_bills(bills, "status"),
+            missed_vote_leaders=[],
+            closest_votes=[],
+            most_bipartisan_bills=self._bipartisan_metrics(),
+            note=note,
+        )
+
+    async def _sample_bills(self, congress: int, allow_demo: bool = False) -> list[BillSummary]:
         if self.db:
             cached = self.db.scalars(select(Bill).where(Bill.congress == congress).limit(250)).all()
             if cached:
@@ -402,13 +465,15 @@ class LegislativeRepository:
             response = await self.bills(congress=congress, limit=100, offset=0)
             return response.items
         except Exception:
+            if not allow_demo:
+                return []
             return [BillSummary(**bill.model_dump()) for bill in demo_data.BILLS]
 
     async def _bill_policy_metrics(self, congress: int) -> list[AnalyticsMetric]:
-        return self._group_bills(await self._sample_bills(congress), "policy_area")
+        return self._group_bills(await self._sample_bills(congress, allow_demo=not self.congress_client.enabled), "policy_area")
 
     async def _bill_status_metrics(self, congress: int) -> list[AnalyticsMetric]:
-        return self._group_bills(await self._sample_bills(congress), "status")
+        return self._group_bills(await self._sample_bills(congress, allow_demo=not self.congress_client.enabled), "status")
 
     def _group_bills(self, bills: list[BillSummary], field: str) -> list[AnalyticsMetric]:
         counts: dict[str, int] = defaultdict(int)
@@ -417,8 +482,19 @@ class LegislativeRepository:
             counts[value] += 1
         return [AnalyticsMetric(label=label, value=value) for label, value in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:10]]
 
-    def _bipartisan_placeholders(self) -> list[AnalyticsMetric]:
+    def _bipartisan_metrics(self) -> list[AnalyticsMetric]:
+        if self.congress_client.enabled:
+            return [
+                AnalyticsMetric(
+                    label="Cosponsor Mix Unavailable",
+                    value=0,
+                    detail="This needs cosponsor-party ETL before it can be calculated without demo data.",
+                )
+            ]
         return self._cards_to_metrics(demo_data.ANALYTICS["most_bipartisan_bills"])
 
     def _cards_to_metrics(self, cards) -> list[AnalyticsMetric]:
         return [AnalyticsMetric(label=item.label, value=item.value, detail=item.detail) for item in cards]
+
+    def _etl_required_card(self, label: str, detail: str) -> AnalyticsCard:
+        return AnalyticsCard(label=label, value=0, detail=detail)

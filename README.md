@@ -35,6 +35,20 @@ uvicorn app.main:app --reload --port 8000
 
 If `CONGRESS_API_KEY` is not set, the backend serves demo data so the app is still explorable.
 
+## Data Diagnostics
+
+Use these endpoints when Render is live but the app looks like it is showing stale, partial, or demo data:
+
+```text
+GET /health
+GET /diagnostics/congress
+GET /diagnostics/data
+```
+
+`/health` now reports whether Congress.gov is actually reachable, whether the roll-call vote cache has records, and whether demo fallback is active. `/diagnostics/data` shows cached roll-call vote totals, cached vote positions, the database backend, and the redacted Congress.gov probe error if the API is returning 403/other failures.
+
+If Congress.gov is configured but `cached_roll_call_votes` is `0`, member and bill search can still use live Congress.gov data, but historical vote analytics will remain empty until the House vote sync runs.
+
 ## Frontend
 
 ```powershell

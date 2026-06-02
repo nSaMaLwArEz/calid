@@ -7,11 +7,13 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.congress_client import CongressClient
 from app.database import ensure_schema, get_db
+from app.models import RollCallVote, VotePosition
 from app.repository import LegislativeRepository
 from app.schemas import AnalyticsResponse, BillDetail, BillListResponse, DashboardAnalyticsResponse, HealthResponse, MemberListResponse, MemberProfile, MemberVotingProfile, VoteBillListResponse, VoteExplorerResponse, VoteMemberListResponse, VoteSyncResponse
 from app.vote_sync import sync_house_votes
@@ -62,12 +64,41 @@ async def root():
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health(repository: LegislativeRepository = Depends(get_repository)) -> HealthResponse:
-    return HealthResponse(status="ok", data_mode=repository.data_mode)
+async def health(
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+) -> HealthResponse:
+    diagnostics = await _data_diagnostics(settings, db)
+    congress_status = str(diagnostics["congress_api_status"])
+    status = "ok" if congress_status in {"ok", "not_configured"} else "degraded"
+    return HealthResponse(
+        status=status,
+        data_mode=str(diagnostics["data_mode"]),
+        congress_api_configured=bool(diagnostics["congress_api_configured"]),
+        congress_api_status=congress_status,
+        congress_api_error=diagnostics.get("congress_api_error"),
+        cache_enabled=bool(diagnostics["cache_enabled"]),
+        cached_roll_call_votes=int(diagnostics["cached_roll_call_votes"]),
+        cached_vote_positions=int(diagnostics["cached_vote_positions"]),
+        demo_fallback_active=bool(diagnostics["demo_fallback_active"]),
+        demo_fallback_reason=diagnostics.get("demo_fallback_reason"),
+    )
 
 
 @app.get("/diagnostics/congress")
 async def congress_diagnostics(settings: Settings = Depends(get_settings)) -> dict[str, object]:
+    return await _congress_probe(settings)
+
+
+@app.get("/diagnostics/data")
+async def data_diagnostics(
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return await _data_diagnostics(settings, db)
+
+
+async def _congress_probe(settings: Settings) -> dict[str, object]:
     diagnostics: dict[str, object] = {
         "api_key_configured": bool(settings.congress_api_key),
         "base_url": str(settings.congress_api_base_url),
@@ -93,6 +124,35 @@ async def congress_diagnostics(settings: Settings = Depends(get_settings)) -> di
         diagnostics["status"] = "error"
         diagnostics["error"] = _redact_api_key(str(exc))
         return diagnostics
+
+
+async def _data_diagnostics(settings: Settings, db: Session) -> dict[str, object]:
+    congress = await _congress_probe(settings)
+    roll_call_votes = db.scalar(select(func.count(RollCallVote.id))) or 0
+    vote_positions = db.scalar(select(func.count(VotePosition.id))) or 0
+    members_with_votes = db.scalar(select(func.count(distinct(VotePosition.member_bioguide_id)))) or 0
+    demo_fallback_active = not settings.congress_api_key
+    demo_fallback_reason = None
+    if demo_fallback_active:
+        demo_fallback_reason = "CONGRESS_API_KEY is not configured, so demo records are used for browsable screens."
+    elif not roll_call_votes:
+        demo_fallback_reason = "Congress.gov is configured, but no House roll-call vote cache exists yet. Run /admin/sync/house-votes for historical vote analytics."
+
+    return {
+        "data_mode": "congress.gov" if settings.congress_api_key else "demo",
+        "congress_api_configured": bool(settings.congress_api_key),
+        "congress_api_status": congress.get("status", "unknown"),
+        "congress_api_status_code": congress.get("status_code"),
+        "congress_api_error": congress.get("error"),
+        "congress_member_total": congress.get("total"),
+        "cache_enabled": True,
+        "cached_roll_call_votes": roll_call_votes,
+        "cached_vote_positions": vote_positions,
+        "cached_members_with_votes": members_with_votes,
+        "database_backend": "postgresql" if settings.database_url.startswith(("postgresql://", "postgresql+psycopg://")) else "sqlite",
+        "demo_fallback_active": demo_fallback_active,
+        "demo_fallback_reason": demo_fallback_reason,
+    }
 
 
 def _redact_api_key(message: str) -> str:
